@@ -2,27 +2,20 @@
 
 ## Overview
 
-A simplified DeFi insurance protocol providing blanket coverage for protocol risks, initially focused on Aave as a prototype. The protocol automatically triggers payouts based on Chainlink oracle conditions without manual claims processing.
+A simplified DeFi insurance protocol providing protection for stablecoin risks. The protocol automatically triggers payouts based on Chainlink oracle conditions without manual claims processing.
 
 ## Core Components
 
 ### Risk Types & Premium Calculation
 
-The protocol has three risk buckets that determine premium pricing:
+The protocol has two risk buckets that determine premium pricing:
 
-1. **Stablecoin Depegging Risk Bucket** (40% weight)
-
+1. **Stablecoin Depegging Risk Bucket** (50% weight)
    - Assesses stablecoin stability risk
    - Higher utilization in this bucket increases premium for depegging risk
    - Triggered when stablecoin price deviates more than 5% from $1 for over 1 hour
 
-2. **Liquidity Risk Bucket** (20% weight)
-
-   - Assesses protocol liquidity risk
-   - Higher utilization in this bucket increases premium for liquidity risk
-   - Triggered when utilization rate exceeds 95% for more than 6 hours
-
-3. **Smart Contract Risk Bucket** (40% weight)
+2. **Smart Contract Risk Bucket** (50% weight)
    - Assesses protocol security risk
    - Higher utilization in this bucket increases premium for smart contract risk
    - Triggered by predefined signatures of known exploit patterns
@@ -30,15 +23,14 @@ The protocol has three risk buckets that determine premium pricing:
 ### Coverage Model
 
 1. Insurance Buyers:
-
-   - Purchase blanket coverage for entire protocol
-   - Total premium calculated based on utilization of all three risk buckets
-   - Premium = Base Rate _ (0.4 _ StablecoinBucketMultiplier + 0.2 _ LiquidityBucketMultiplier + 0.4 _ SmartContractBucketMultiplier)
+   - Purchase coverage for stablecoin protection
+   - Total premium calculated based on utilization of both risk buckets
+   - Premium = Base Rate * (0.5 * StablecoinBucketMultiplier + 0.5 * SmartContractBucketMultiplier)
    - Provide security deposit (20% of coverage amount)
    - Initial coverage fee deducted from deposit to activate coverage
    - Ongoing fees automatically deducted from deposit over time
    - Coverage duration is fixed at 30 days
-   - Coverage protects against all monitored risk types
+   - Coverage protects against both monitored risk types
 
 2. Liquidity Providers:
    - Can provide liquidity to specific risk buckets
@@ -55,13 +47,12 @@ The protocol has three risk buckets that determine premium pricing:
 - Higher utilization in a bucket = higher premium component for that risk
 - Total premium = weighted sum of premiums from each bucket
 - Risk weights:
-  - Stablecoin Depeg: 40%
-  - Liquidity Shortage: 20%
-  - Smart Contract Risk: 40%
+  - Stablecoin Depeg: 50%
+  - Smart Contract Risk: 50%
 
 #### Utilization-Based Premium Multipliers
 
-- Base formula for each bucket: Base Rate \* (1 + Utilization Multiplier)
+- Base formula for each bucket: Base Rate * (1 + Utilization Multiplier)
 - Utilization calculation per bucket:
   - Utilization = (Total Active Coverage + Pending Payouts) / Total Allocated Liquidity
   - Includes both active coverage amounts and pending/delayed payouts
@@ -70,21 +61,19 @@ The protocol has three risk buckets that determine premium pricing:
   - For utilization ≤ 50%: Multiplier = Utilization%
   - For utilization > 50%: Multiplier = Utilization% ^ 2
 - Example:
-  - At 30% utilization: 2% \* (1 + 0.3) = 2.6% annual rate
-  - At 80% utilization: 2% \* (1 + 0.64) = 3.28% annual rate
+  - At 30% utilization: 2% * (1 + 0.3) = 2.6% annual rate
+  - At 80% utilization: 2% * (1 + 0.64) = 3.28% annual rate
 - Maximum premium cap at 6% annual rate per bucket
 
 #### Total Premium Example
 
 Given:
-
 - Stablecoin Bucket: 80% utilized = 3.28% adjusted rate
-- Liquidity Bucket: 30% utilized = 2.6% adjusted rate
 - Smart Contract Bucket: 50% utilized = 3% adjusted rate
 
-Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
-= 1.312% + 0.52% + 1.2%
-= 3.032% annual rate
+Total Premium = (3.28% * 0.5) + (3% * 0.5)
+= 1.64% + 1.5%
+= 3.14% annual rate
 
 ### Liquidity Management
 
@@ -98,9 +87,7 @@ Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
 ### Oracle Integration
 
 1. Risk Monitoring:
-
    - Uses Chainlink price feeds for stablecoin rates
-   - Uses Chainlink data feeds for protocol metrics
    - Updates every block
    - Maintains continuous risk assessment
 
@@ -112,7 +99,6 @@ Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
 ### Automated Payouts
 
 1. Trigger Process:
-
    - Oracle detects trigger condition from any risk type
    - 24-hour delay period starts
    - If condition persists, payout is processed
@@ -133,7 +119,7 @@ Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
 - Minimum Coverage: $1,000
 - Initial Coverage Fee: 0.5% of coverage amount
 - Base Premium Rate: 2% annual (adjusted by bucket utilization)
-- Risk Weights: 40/20/40 split
+- Risk Weights: 50/50 split
 
 ### Dynamic Parameters
 
@@ -147,26 +133,24 @@ Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
 ### Smart Contracts
 
 1. InsurancePool.sol
-
    - Core contract managing deposits and coverage
    - Handles fee deductions from security deposits
    - Manages shared liquidity pool
    - Tracks bucket allocations and utilization rates
 
 2. PayoutManager.sol
-
    - Manages automated payouts from shared pool
    - Validates oracle triggers
    - Processes claims distribution
 
 3. InsuranceOracle.sol
    - Integrates with Chainlink
-   - Monitors protocol risk conditions
+   - Monitors stablecoin prices and smart contract conditions
    - Manages risk data aggregation
 
 ### Risk Bucket Architecture
 
-- Three risk buckets for premium calculation (40/20/40 weights)
+- Two risk buckets for premium calculation (50/50 weights)
 - Single shared liquidity pool for payouts
 - Dynamic pricing based on bucket utilization
 - Built-in buffer requirements
@@ -174,13 +158,11 @@ Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
 ## Limitations and Constraints
 
 1. Coverage:
-
-   - Single protocol coverage per purchase
+   - Single stablecoin coverage per purchase
    - Fixed coverage duration
    - Requires security deposit
 
 2. Liquidity:
-
    - Maximum pool capacity limits
    - Minimum stake requirements
    - Unstaking delays
@@ -192,7 +174,7 @@ Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
 
 ## Future Considerations
 
-- Multi-protocol coverage
+- Multi-stablecoin coverage
 - Variable coverage duration
 - Custom risk weights
 - Adjustable fee structures
