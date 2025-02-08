@@ -2,6 +2,8 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
+const AAVE_PROTOCOL_ID = ethers.utils.formatBytes32String("Aave");
+
 describe("InsurancePool", function () {
   let insurancePool;
   let insuranceOracle;
@@ -9,10 +11,8 @@ describe("InsurancePool", function () {
   let buyer;
   let provider;
 
-  const AAVE_PROTOCOL_ID = ethers.utils.formatBytes32String("AAVE");
-  const SMART_CONTRACT_RISK = ethers.utils.formatBytes32String("SMART_CONTRACT");
-  const LIQUIDITY_RISK = ethers.utils.formatBytes32String("LIQUIDITY");
   const STABLECOIN_RISK = ethers.utils.formatBytes32String("STABLECOIN");
+  const SMART_CONTRACT_RISK = ethers.utils.formatBytes32String("SMART_CONTRACT");
 
   beforeEach(async function () {
     [owner, buyer, provider] = await ethers.getSigners();
@@ -27,35 +27,25 @@ describe("InsurancePool", function () {
     insurancePool = await InsurancePool.deploy();
     await insurancePool.deployed();
 
-    // Initialize protocol
-    await insurancePool.addProtocol(AAVE_PROTOCOL_ID, "Aave", insuranceOracle.address);
-
-    // Add risk pools
-    await insurancePool.addRiskPool(AAVE_PROTOCOL_ID, SMART_CONTRACT_RISK, 150);
-    await insurancePool.addRiskPool(AAVE_PROTOCOL_ID, LIQUIDITY_RISK, 120);
-    await insurancePool.addRiskPool(AAVE_PROTOCOL_ID, STABLECOIN_RISK, 180);
-
     // Unpause
     await insurancePool.unpause();
   });
 
   describe("Coverage Purchase", function () {
     it("Should allow purchasing coverage with security deposit", async function () {
-      const coverageAmount = ethers.utils.parseEther("100");
+      const coverageAmount = ethers.utils.parseEther("1000"); // Reduced coverage amount
       const securityDeposit = coverageAmount.mul(20).div(100); // 20%
 
       await expect(insurancePool.connect(buyer).purchaseCoverage(
-        AAVE_PROTOCOL_ID,
         coverageAmount,
         { value: securityDeposit }
       )).to.emit(insurancePool, "CoveragePurchased")
         .withArgs(
           buyer.address,
-          AAVE_PROTOCOL_ID,
           coverageAmount,
           securityDeposit,
-          [SMART_CONTRACT_RISK, LIQUIDITY_RISK, STABLECOIN_RISK],
-          [securityDeposit.div(3), securityDeposit.div(3), securityDeposit.div(3)]
+          [STABLECOIN_RISK, SMART_CONTRACT_RISK],
+          [securityDeposit.div(2), securityDeposit.div(2)]
         );
 
       const coverage = await insurancePool.getCoverage(buyer.address);
@@ -65,24 +55,45 @@ describe("InsurancePool", function () {
     });
 
     it("Should reject purchase with insufficient security deposit", async function () {
-      const coverageAmount = ethers.utils.parseEther("100");
+      const coverageAmount = ethers.utils.parseEther("500"); // Reduced coverage amount
       const insufficientDeposit = coverageAmount.mul(19).div(100); // 19% instead of required 20%
 
       await expect(insurancePool.connect(buyer).purchaseCoverage(
-        AAVE_PROTOCOL_ID,
         coverageAmount,
         { value: insufficientDeposit }
       )).to.be.revertedWith("Insufficient security deposit");
     });
   });
 
+  describe("Liquidity Limit", function () {
+    it("Should revert if coverage exceeds 80% of total liquidity", async function () {
+      // Add liquidity to the pool
+      const liquidityAmount = ethers.utils.parseEther("10000");
+      const allocations = [5000, 5000]; // 50% to each bucket
+      await insurancePool.connect(provider).addLiquidity(allocations, {
+        value: liquidityAmount,
+      });
+
+      // Calculate coverage amount that exceeds 80% of total liquidity
+      const coverageAmount = ethers.utils.parseEther("8001"); // 80.01% of 10000
+      const securityDeposit = coverageAmount.mul(20).div(100);
+
+      // Attempt to purchase coverage exceeding the limit and expect a revert
+      await expect(
+        insurancePool.connect(buyer).purchaseCoverage(
+          coverageAmount,
+          { value: securityDeposit }
+        )
+      ).to.be.revertedWith("Coverage exceeds 80% of total liquidity");
+    });
+  });
+
   describe("Premium Deduction", function () {
     beforeEach(async function () {
       // Purchase coverage
-      const coverageAmount = ethers.utils.parseEther("100");
+      const coverageAmount = ethers.utils.parseEther("1000"); // Reduced coverage amount
       const securityDeposit = coverageAmount.mul(20).div(100);
       await insurancePool.connect(buyer).purchaseCoverage(
-        AAVE_PROTOCOL_ID,
         coverageAmount,
         { value: securityDeposit }
       );

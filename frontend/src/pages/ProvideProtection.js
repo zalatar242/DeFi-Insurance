@@ -161,7 +161,6 @@ const ProvideProtection = () => {
   const [error, setError] = useState(null);
   const [amounts, setAmounts] = useState({
     STABLECOIN_DEPEG: "",
-    LIQUIDITY_SHORTAGE: "",
     SMART_CONTRACT: ""
   });
   const [submitting, setSubmitting] = useState(false);
@@ -227,11 +226,10 @@ const ProvideProtection = () => {
       );
 
       // Calculate allocations - 100% to selected bucket
-      const allocations = [0, 0, 0];
+      const allocations = [0, 0];
       const index = {
         STABLECOIN_DEPEG: 0,
-        LIQUIDITY_SHORTAGE: 1,
-        SMART_CONTRACT: 2
+        SMART_CONTRACT: 1
       }[riskType];
       allocations[index] = BASIS_POINTS; // 100% in basis points
 
@@ -278,23 +276,18 @@ const ProvideProtection = () => {
 
       const RiskType = {
         STABLECOIN_DEPEG: 0,
-        LIQUIDITY_SHORTAGE: 1,
-        SMART_CONTRACT: 2
+        SMART_CONTRACT: 1
       };
 
       const [
         stablecoinRiskBucket,
-        liquidityRiskBucket,
         smartContractRiskBucket,
         stablecoinWeight,
-        liquidityWeight,
         smartContractWeight
       ] = await Promise.all([
         insurancePool.getRiskBucket(RiskType.STABLECOIN_DEPEG),
-        insurancePool.getRiskBucket(RiskType.LIQUIDITY_SHORTAGE),
         insurancePool.getRiskBucket(RiskType.SMART_CONTRACT),
         insurancePool.getBucketWeight(RiskType.STABLECOIN_DEPEG),
-        insurancePool.getBucketWeight(RiskType.LIQUIDITY_SHORTAGE),
         insurancePool.getBucketWeight(RiskType.SMART_CONTRACT)
       ]);
 
@@ -302,7 +295,7 @@ const ProvideProtection = () => {
         {
           type: "STABLECOIN_DEPEG",
           title: "Stablecoin Depeg",
-          weight: `${(Number(stablecoinWeight) / 100).toFixed(0)}%`,
+          weight: "50%",
           icon: <Warning />,
           color: "#6c5ce7",
           apy: calculateAPY(formatUtilization(stablecoinRiskBucket.utilizationRate)),
@@ -311,20 +304,9 @@ const ProvideProtection = () => {
           description: "Protection against stablecoin depegging events"
         },
         {
-          type: "LIQUIDITY_SHORTAGE",
-          title: "Liquidity Shortage",
-          weight: `${(Number(liquidityWeight) / 100).toFixed(0)}%`,
-          icon: <LocalAtm />,
-          color: "#00d2d3",
-          apy: calculateAPY(formatUtilization(liquidityRiskBucket.utilizationRate)),
-          allocatedLiquidity: formatLiquidity(liquidityRiskBucket.allocatedLiquidity),
-          utilization: `${formatUtilization(liquidityRiskBucket.utilizationRate)}%`,
-          description: "Protection against protocol liquidity shortages"
-        },
-        {
           type: "SMART_CONTRACT",
           title: "Smart Contract Risk",
-          weight: `${(Number(smartContractWeight) / 100).toFixed(0)}%`,
+          weight: "50%",
           icon: <Security />,
           color: "#ff7675",
           apy: calculateAPY(formatUtilization(smartContractRiskBucket.utilizationRate)),

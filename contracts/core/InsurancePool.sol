@@ -30,9 +30,8 @@ contract InsurancePool is IInsurancePool {
     }
 
     // Fixed bucket weights (in basis points, 100 = 1%)
-    uint256 private constant STABLECOIN_WEIGHT = 4000; // 40%
-    uint256 private constant LIQUIDITY_WEIGHT = 2000; // 20%
-    uint256 private constant SMART_CONTRACT_WEIGHT = 4000; // 40%
+    uint256 private constant STABLECOIN_WEIGHT = 5000; // 50%
+    uint256 private constant SMART_CONTRACT_WEIGHT = 5000; // 50%
 
     // Coverage parameters
     uint256 public constant COVERAGE_DURATION = 30 days;
@@ -48,7 +47,7 @@ contract InsurancePool is IInsurancePool {
     // Events
     event WithdrawRequested(
         address indexed provider,
-        uint256[3] amounts,
+        uint256[2] amounts,
         uint256 unlockTime
     );
     event OwnershipTransferred(
@@ -60,7 +59,7 @@ contract InsurancePool is IInsurancePool {
 
     // Structs
     struct UnlockRequest {
-        uint256[3] amounts; // Amount to withdraw from each bucket
+        uint256[2] amounts; // Amount to withdraw from each bucket
         uint256 unlockTime; // When withdrawal becomes available
         bool isActive; // Whether request is still valid
     }
@@ -133,13 +132,6 @@ contract InsurancePool is IInsurancePool {
             utilizationRate: 0
         });
 
-        riskBuckets[RiskType.LIQUIDITY_SHORTAGE] = RiskBucket({
-            allocatedLiquidity: 0,
-            activeCoverage: 0,
-            pendingPayouts: 0,
-            utilizationRate: 0
-        });
-
         riskBuckets[RiskType.SMART_CONTRACT] = RiskBucket({
             allocatedLiquidity: 0,
             activeCoverage: 0,
@@ -184,12 +176,11 @@ contract InsurancePool is IInsurancePool {
     }
 
     function getBucketWeight(RiskType bucket) external pure returns (uint256) {
-        _getBucketWeight(bucket);
+        return _getBucketWeight(bucket);
     }
 
     function _getBucketWeight(RiskType bucket) internal pure returns (uint256) {
         if (bucket == RiskType.STABLECOIN_DEPEG) return STABLECOIN_WEIGHT;
-        if (bucket == RiskType.LIQUIDITY_SHORTAGE) return LIQUIDITY_WEIGHT;
         return SMART_CONTRACT_WEIGHT;
     }
 
@@ -204,7 +195,7 @@ contract InsurancePool is IInsurancePool {
     ) internal view returns (uint256) {
         uint256 totalPremium = 0;
 
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < 2; i++) {
             RiskType bucket = RiskType(i);
             uint256 weight = _getBucketWeight(bucket);
             uint256 bucketPremium = _calculateBucketPremium(
@@ -240,6 +231,10 @@ contract InsurancePool is IInsurancePool {
             "Active coverage exists"
         );
 
+        // Check if coverage exceeds 80% of total liquidity
+        uint256 maxCoverage = (totalLiquidity * 80) / 100;
+        require(amount <= maxCoverage, "Coverage exceeds 80% of total liquidity");
+
         uint256 requiredDeposit = _calculateRequiredDeposit(amount);
         require(msg.value >= requiredDeposit, "Insufficient security deposit");
 
@@ -273,7 +268,7 @@ contract InsurancePool is IInsurancePool {
     }
 
     function addLiquidity(
-        uint256[3] calldata allocations
+        uint256[2] calldata allocations
     ) external payable nonReentrant whenNotPaused {
         require(msg.value > 0, "No deposit provided");
 
@@ -287,7 +282,7 @@ contract InsurancePool is IInsurancePool {
         providerAllocations[msg.sender].allocations = allocations;
 
         // Update bucket liquidity
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < 2; i++) {
             RiskType bucket = RiskType(i);
             uint256 bucketAmount = (msg.value * allocations[i]) / BASIS_POINTS;
             riskBuckets[bucket].allocatedLiquidity += bucketAmount;
@@ -301,7 +296,7 @@ contract InsurancePool is IInsurancePool {
     }
 
     function requestWithdraw(
-        uint256[3] calldata amounts
+        uint256[2] calldata amounts
     ) external nonReentrant whenNotPaused {
         uint256 totalWithdrawal = 0;
         BucketAllocation storage providerAlloc = providerAllocations[
@@ -309,7 +304,7 @@ contract InsurancePool is IInsurancePool {
         ];
 
         // Verify withdrawal amounts against allocations
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < 2; i++) {
             RiskType bucket = RiskType(i);
             uint256 maxAmount = (totalLiquidity *
                 providerAlloc.allocations[i]) / BASIS_POINTS;
@@ -348,7 +343,7 @@ contract InsurancePool is IInsurancePool {
         require(block.timestamp >= request.unlockTime, "Still locked");
 
         uint256 totalAmount = 0;
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < 2; i++) {
             RiskType bucket = RiskType(i);
             uint256 amount = request.amounts[i];
             if (amount > 0) {
@@ -434,7 +429,7 @@ contract InsurancePool is IInsurancePool {
     function _updateBucketUtilization() internal {
         if (totalLiquidity == 0) return;
 
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < 2; i++) {
             RiskType bucket = RiskType(i);
             RiskBucket storage riskBucket = riskBuckets[bucket];
             riskBucket.utilizationRate =

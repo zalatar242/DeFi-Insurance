@@ -5,7 +5,6 @@ interface IInsurancePool {
     // Risk Types
     enum RiskType {
         STABLECOIN_DEPEG,
-        LIQUIDITY_SHORTAGE,
         SMART_CONTRACT
     }
 
@@ -28,7 +27,7 @@ interface IInsurancePool {
     }
 
     struct BucketAllocation {
-        uint256[3] allocations; // Array of allocation percentages (must sum to 100)
+        uint256[2] allocations; // Array of allocation percentages (must sum to 100)
     }
 
     struct DelayedPayout {
@@ -57,12 +56,12 @@ interface IInsurancePool {
     event LiquidityAdded(
         address indexed provider,
         uint256 amount,
-        uint256[3] allocations
+        uint256[2] allocations
     );
     event LiquidityWithdrawn(
         address indexed provider,
         uint256 amount,
-        uint256[3] allocations
+        uint256[2] allocations
     );
     event UtilizationUpdated(RiskType indexed riskType, uint256 newRate);
 
@@ -98,9 +97,9 @@ interface IInsurancePool {
     ) external view returns (DelayedPayout memory);
 
     // Liquidity Provider functions
-    function addLiquidity(uint256[3] calldata allocations) external payable;
+    function addLiquidity(uint256[2] calldata allocations) external payable;
 
-    function requestWithdraw(uint256[3] calldata amounts) external;
+    function requestWithdraw(uint256[2] calldata amounts) external;
 
     function executeWithdraw() external;
 

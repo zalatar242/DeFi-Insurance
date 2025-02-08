@@ -9,21 +9,19 @@ contract InsuranceOracle is IInsuranceOracle {
     address public owner;
     bool public paused;
 
-    // Constants
     // Note on timestamp usage: block.timestamp is used for tracking durations in hours.
     // While miners can manipulate timestamps slightly (by a few seconds),
     // this won't significantly impact the system since:
     // 1. We use hours-long durations (minimum 1 hour for triggers)
     // 2. Price feeds from Chainlink provide their own timestamps
     // 3. The system is designed to be resilient to small timing variations
-
-    uint256 public constant STABLECOIN_DEVIATION_THRESHOLD = 5e6;    // 5%
-    uint256 public constant UTILIZATION_THRESHOLD = 95e6;            // 95%
-    uint256 public constant MINIMUM_TRIGGER_DURATION = 1 hours;      // 1 hour for stablecoins
-    uint256 public constant PRICE_PRECISION = 1e8;                   // 1e8 for Chainlink
+    uint256 public constant STABLECOIN_DEVIATION_THRESHOLD = 5e6; // 5%
+    uint256 public constant MINIMUM_TRIGGER_DURATION = 1 hours; // 1 hour for stablecoins
+    uint256 public constant PRICE_PRECISION = 1e8;
 
     // State variables
     address public insurancePool;
+    address public utilizationFeed;
     mapping(IInsurancePool.RiskType => RiskState) public riskStates;
     mapping(address => StablecoinState) public stablecoinStates;
     mapping(bytes32 => bool) public knownExploits;
@@ -31,10 +29,13 @@ contract InsuranceOracle is IInsuranceOracle {
     // Track active elements
     address[] public supportedStablecoins;
     bytes32[] public exploitSignatures;
-    address public utilizationFeed;
 
     // Events
-    event StablecoinAdded(address indexed token, address indexed priceFeed, string symbol);
+    event StablecoinAdded(
+        address indexed token,
+        address indexed priceFeed,
+        string symbol
+    );
     event StablecoinRemoved(address indexed token);
 
     // Constructor
@@ -54,23 +55,27 @@ contract InsuranceOracle is IInsuranceOracle {
     }
 
     // Core functions
-    function checkRiskCondition(IInsurancePool.RiskType riskType) external whenNotPaused returns (bool) {
+    function checkRiskCondition(
+        IInsurancePool.RiskType riskType
+    ) external whenNotPaused returns (bool) {
         if (riskType == IInsurancePool.RiskType.STABLECOIN_DEPEG) {
             return _checkStablecoinDepeg();
-        } else if (riskType == IInsurancePool.RiskType.LIQUIDITY_SHORTAGE) {
-            return _checkLiquidityShortage();
         } else {
             return _checkSmartContractExploit();
         }
     }
 
-    function updateStablecoinPrice(address token) external whenNotPaused returns (uint256) {
+    function updateStablecoinPrice(
+        address token
+    ) external whenNotPaused returns (uint256) {
         StablecoinState storage state = stablecoinStates[token];
         require(state.isSupported, "Token not supported");
         require(state.chainlinkFeed != address(0), "No price feed");
 
         // Update price using Chainlink
-        (uint256 price, uint256 timestamp) = _getChainlinkPrice(state.chainlinkFeed);
+        (uint256 price, uint256 timestamp) = _getChainlinkPrice(
+            state.chainlinkFeed
+        );
         state.price = price;
         state.lastPriceUpdate = timestamp;
 
@@ -78,42 +83,38 @@ contract InsuranceOracle is IInsuranceOracle {
         return price;
     }
 
-    function updateProtocolUtilization() external whenNotPaused returns (uint256) {
-        require(utilizationFeed != address(0), "No utilization feed");
-
-        (uint256 utilization, uint256 timestamp) = _getChainlinkPrice(utilizationFeed);
-        emit ProtocolUtilizationUpdated(utilization, timestamp);
-        return utilization;
-    }
-
     function checkSmartContractSafety() external whenNotPaused returns (bool) {
         return exploitSignatures.length == 0;
     }
 
     // View functions
-    function getRiskState(IInsurancePool.RiskType riskType) external view returns (RiskState memory) {
+    function getRiskState(
+        IInsurancePool.RiskType riskType
+    ) external view returns (RiskState memory) {
         return riskStates[riskType];
     }
 
-    function getStablecoinState(address token) external view returns (StablecoinState memory) {
+    function getStablecoinState(
+        address token
+    ) external view returns (StablecoinState memory) {
         return stablecoinStates[token];
-    }
-
-    function getProtocolUtilization() external view returns (uint256) {
-        require(utilizationFeed != address(0), "No utilization feed");
-        (uint256 utilization,) = _getChainlinkPrice(utilizationFeed);
-        return utilization;
     }
 
     function getExploitSignatures() external view returns (bytes32[] memory) {
         return exploitSignatures;
     }
 
-    function getSupportedStablecoins() external view returns (address[] memory) {
+    function getSupportedStablecoins()
+        external
+        view
+        returns (address[] memory)
+    {
         return supportedStablecoins;
     }
 
-    function isRiskConditionMet(IInsurancePool.RiskType riskType) external view returns (bool) {
+    function isRiskConditionMet(
+        IInsurancePool.RiskType riskType
+    ) external view returns (bool) {
         RiskState memory state = riskStates[riskType];
         if (!state.isTriggered) {
             return false;
@@ -124,6 +125,45 @@ contract InsuranceOracle is IInsuranceOracle {
         }
 
         return true;
+    }
+
+    // Demo functions for MVP
+    function simulateStablecoinDepeg(address stablecoin) external {
+        require(
+            stablecoinStates[stablecoin].isSupported,
+            "Stablecoin not supported"
+        );
+
+        uint256 currentTime = _getTimeNow();
+        RiskState storage state = riskStates[
+            IInsurancePool.RiskType.STABLECOIN_DEPEG
+        ];
+
+        // Trigger the depeg event
+        state.isTriggered = true;
+        state.triggerStartTime = currentTime;
+        state.details = bytes32(uint256(uint160(stablecoin))); // Store which stablecoin triggered
+
+        emit RiskConditionTriggered(
+            IInsurancePool.RiskType.STABLECOIN_DEPEG,
+            currentTime,
+            state.details
+        );
+    }
+
+    function resolveStablecoinDepeg() external onlyOwner {
+        RiskState storage state = riskStates[
+            IInsurancePool.RiskType.STABLECOIN_DEPEG
+        ];
+        require(state.isTriggered, "No active depeg event");
+
+        // Resolve the depeg event
+        state.isTriggered = false;
+
+        emit RiskConditionResolved(
+            IInsurancePool.RiskType.STABLECOIN_DEPEG,
+            _getTimeNow()
+        );
     }
 
     // Admin functions
@@ -159,7 +199,9 @@ contract InsuranceOracle is IInsuranceOracle {
         // Remove from active list
         for (uint i = 0; i < supportedStablecoins.length; i++) {
             if (supportedStablecoins[i] == token) {
-                supportedStablecoins[i] = supportedStablecoins[supportedStablecoins.length - 1];
+                supportedStablecoins[i] = supportedStablecoins[
+                    supportedStablecoins.length - 1
+                ];
                 supportedStablecoins.pop();
                 break;
             }
@@ -179,7 +221,9 @@ contract InsuranceOracle is IInsuranceOracle {
 
         // Update smart contract risk state
         uint256 currentTime = _getTimeNow();
-        RiskState storage state = riskStates[IInsurancePool.RiskType.SMART_CONTRACT];
+        RiskState storage state = riskStates[
+            IInsurancePool.RiskType.SMART_CONTRACT
+        ];
 
         if (!state.isTriggered) {
             state.isTriggered = true;
@@ -203,7 +247,9 @@ contract InsuranceOracle is IInsuranceOracle {
         // Remove from active list
         for (uint i = 0; i < exploitSignatures.length; i++) {
             if (exploitSignatures[i] == signature) {
-                exploitSignatures[i] = exploitSignatures[exploitSignatures.length - 1];
+                exploitSignatures[i] = exploitSignatures[
+                    exploitSignatures.length - 1
+                ];
                 exploitSignatures.pop();
                 break;
             }
@@ -211,14 +257,19 @@ contract InsuranceOracle is IInsuranceOracle {
 
         // Update smart contract risk state if no more exploits
         if (exploitSignatures.length == 0) {
-            RiskState storage state = riskStates[IInsurancePool.RiskType.SMART_CONTRACT];
+            RiskState storage state = riskStates[
+                IInsurancePool.RiskType.SMART_CONTRACT
+            ];
             state.isTriggered = false;
-            emit RiskConditionResolved(IInsurancePool.RiskType.SMART_CONTRACT, _getTimeNow());
+            emit RiskConditionResolved(
+                IInsurancePool.RiskType.SMART_CONTRACT,
+                _getTimeNow()
+            );
         }
     }
 
     function setUtilizationFeed(address feed) external onlyOwner {
-        require(feed != address(0), "Invalid feed");
+        require(feed != address(0), "Invalid feed address");
         utilizationFeed = feed;
     }
 
@@ -231,7 +282,9 @@ contract InsuranceOracle is IInsuranceOracle {
     function _checkStablecoinDepeg() internal returns (bool) {
         bool triggered = false;
         uint256 currentTime = _getTimeNow();
-        RiskState storage state = riskStates[IInsurancePool.RiskType.STABLECOIN_DEPEG];
+        RiskState storage state = riskStates[
+            IInsurancePool.RiskType.STABLECOIN_DEPEG
+        ];
         address triggeredToken;
 
         // Check all supported stablecoins
@@ -239,10 +292,10 @@ contract InsuranceOracle is IInsuranceOracle {
             address token = supportedStablecoins[i];
             StablecoinState storage stable = stablecoinStates[token];
 
-            (uint256 price,) = _getChainlinkPrice(stable.chainlinkFeed);
+            (uint256 price, ) = _getChainlinkPrice(stable.chainlinkFeed);
             uint256 deviation = _calculateDeviation(price, PRICE_PRECISION);
 
-            if (deviation > STABLECOIN_DEVIATION_THRESHOLD) {
+            if (deviation > this.STABLECOIN_DEVIATION_THRESHOLD()) {
                 triggered = true;
                 triggeredToken = token;
                 break;
@@ -260,35 +313,10 @@ contract InsuranceOracle is IInsuranceOracle {
             );
         } else if (!triggered && state.isTriggered) {
             state.isTriggered = false;
-            emit RiskConditionResolved(IInsurancePool.RiskType.STABLECOIN_DEPEG, currentTime);
-        }
-
-        state.lastUpdateTime = currentTime;
-        return triggered;
-    }
-
-    function _checkLiquidityShortage() internal returns (bool) {
-        bool triggered = false;
-        uint256 currentTime = _getTimeNow();
-        RiskState storage state = riskStates[IInsurancePool.RiskType.LIQUIDITY_SHORTAGE];
-
-        if (utilizationFeed != address(0)) {
-            (uint256 utilization,) = _getChainlinkPrice(utilizationFeed);
-            triggered = utilization >= UTILIZATION_THRESHOLD;
-
-            if (triggered && !state.isTriggered) {
-                state.isTriggered = true;
-                state.triggerStartTime = currentTime;
-                state.details = bytes32(utilization);
-                emit RiskConditionTriggered(
-                    IInsurancePool.RiskType.LIQUIDITY_SHORTAGE,
-                    currentTime,
-                    state.details
-                );
-            } else if (!triggered && state.isTriggered) {
-                state.isTriggered = false;
-                emit RiskConditionResolved(IInsurancePool.RiskType.LIQUIDITY_SHORTAGE, currentTime);
-            }
+            emit RiskConditionResolved(
+                IInsurancePool.RiskType.STABLECOIN_DEPEG,
+                currentTime
+            );
         }
 
         state.lastUpdateTime = currentTime;
@@ -305,17 +333,23 @@ contract InsuranceOracle is IInsuranceOracle {
         return block.timestamp;
     }
 
-    function _getMinimumDuration() internal pure virtual returns (uint256) {
-        return MINIMUM_TRIGGER_DURATION;
+    function _getMinimumDuration() internal view virtual returns (uint256) {
+        return this.MINIMUM_TRIGGER_DURATION();
     }
 
-    function _getChainlinkPrice(address feed) internal view returns (uint256, uint256) {
-        // Mock implementation - would use actual Chainlink AggregatorV3Interface in production
-        // In production, use the timestamp from Chainlink instead of block.timestamp
-        return (PRICE_PRECISION, _getTimeNow());
+    function _getChainlinkPrice(
+        address feed
+    ) internal view returns (uint256, uint256) {
+        // Mock implementation for MVP testing
+        // Return a depegged price (0.90 USD) to simulate stablecoin depegging
+        // In production, this would use actual Chainlink AggregatorV3Interface
+        return (90000000, _getTimeNow()); // 0.90 USD in 8 decimal precision
     }
 
-    function _calculateDeviation(uint256 price, uint256 target) internal pure returns (uint256) {
+    function _calculateDeviation(
+        uint256 price,
+        uint256 target
+    ) internal pure returns (uint256) {
         if (price > target) {
             return ((price - target) * 1e8) / target;
         } else {

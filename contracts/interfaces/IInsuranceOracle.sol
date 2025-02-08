@@ -6,17 +6,17 @@ import {IInsurancePool} from "./IInsurancePool.sol";
 interface IInsuranceOracle {
     // Structs
     struct RiskState {
-        bool isTriggered;             // Whether risk condition is currently triggered
-        uint256 triggerStartTime;     // When the risk condition was first detected
-        uint256 lastUpdateTime;       // Last time the risk was checked
-        bytes32 details;              // Additional details about the trigger
+        bool isTriggered; // Whether risk condition is currently triggered
+        uint256 triggerStartTime; // When the risk condition was first detected
+        uint256 lastUpdateTime; // Last time the risk was checked
+        bytes32 details; // Additional details about the trigger
     }
 
     struct StablecoinState {
-        uint256 price;                // Current price in USD (scaled by 1e8)
-        uint256 lastPriceUpdate;      // Last price update timestamp
-        bool isSupported;             // Whether this stablecoin is monitored
-        address chainlinkFeed;        // Chainlink price feed address
+        uint256 price; // Current price in USD (scaled by 1e8)
+        uint256 lastPriceUpdate; // Last price update timestamp
+        bool isSupported; // Whether this stablecoin is monitored
+        address chainlinkFeed; // Chainlink price feed address
     }
 
     // Events
@@ -37,34 +37,31 @@ interface IInsuranceOracle {
         uint256 timestamp
     );
 
-    event ProtocolUtilizationUpdated(
-        uint256 utilization,
-        uint256 timestamp
-    );
-
-    event ExploitSignatureAdded(
-        bytes32 indexed signature,
-        string description
-    );
+    event ExploitSignatureAdded(bytes32 indexed signature, string description);
 
     // Core functions
-    function checkRiskCondition(IInsurancePool.RiskType riskType) external returns (bool);
+    function checkRiskCondition(
+        IInsurancePool.RiskType riskType
+    ) external returns (bool);
+
     function updateStablecoinPrice(address token) external returns (uint256);
-    function updateProtocolUtilization() external returns (uint256);
+
     function checkSmartContractSafety() external returns (bool);
 
     // View functions
-    function getRiskState(IInsurancePool.RiskType riskType) external view returns (RiskState memory);
-    function getStablecoinState(address token) external view returns (StablecoinState memory);
-    function getProtocolUtilization() external view returns (uint256);
-    function getExploitSignatures() external view returns (bytes32[] memory);
-    function isRiskConditionMet(IInsurancePool.RiskType riskType) external view returns (bool);
+    function getRiskState(
+        IInsurancePool.RiskType riskType
+    ) external view returns (RiskState memory);
 
-    // Constants
-    function STABLECOIN_DEVIATION_THRESHOLD() external pure returns (uint256); // 5% = 5e6
-    function UTILIZATION_THRESHOLD() external pure returns (uint256);          // 95% = 95e6
-    function MINIMUM_TRIGGER_DURATION() external pure returns (uint256);       // 1 hour for stablecoins
-    function PRICE_PRECISION() external pure returns (uint256);               // 1e8 for Chainlink
+    function getStablecoinState(
+        address token
+    ) external view returns (StablecoinState memory);
+
+    function getExploitSignatures() external view returns (bytes32[] memory);
+
+    function isRiskConditionMet(
+        IInsurancePool.RiskType riskType
+    ) external view returns (bool);
 
     // Admin functions
     function addStablecoin(

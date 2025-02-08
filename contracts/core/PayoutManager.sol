@@ -96,7 +96,7 @@ contract PayoutManager is IPayoutManager {
         IInsurancePool.RiskType triggerType;
         bool found = false;
 
-        for (uint i = 0; i < 3; i++) {
+        for (uint i = 0; i < 2; i++) {
             triggerType = IInsurancePool.RiskType(i);
             if (oracle.checkRiskCondition(triggerType) && oracle.isRiskConditionMet(triggerType)) {
                 found = true;
@@ -174,7 +174,7 @@ contract PayoutManager is IPayoutManager {
         }
 
         // Check all risk types for trigger conditions
-        for (uint i = 0; i < 3; i++) {
+        for (uint i = 0; i < 2; i++) {
             IInsurancePool.RiskType riskType = IInsurancePool.RiskType(i);
             if (oracle.isRiskConditionMet(riskType)) {
                 return true;

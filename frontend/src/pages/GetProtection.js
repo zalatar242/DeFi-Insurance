@@ -119,17 +119,9 @@ const Message = styled.div`
 `;
 
 const GetProtection = () => {
-  const [aaveProtection, setAaveProtection] = useState({
-    title: "Aave Protection",
-    risks: ["Stablecoin Depegging Risk (40% weight)", "Liquidity Risk (20% weight)", "Smart Contract Risk (40% weight)"],
-    costPerHundred: 0.20,
-    availableProtection: "5089",
-    maxProtection: "5089",
-    currentBalance: 0
-  });
-  const [rlusdProtection, setRlusdProtection] = useState({
-    title: "RLUSD Protection",
-    risks: ["Stablecoin Depegging Risk (100% weight)"],
+  const [stablecoinProtection, setStablecoinProtection] = useState({
+    title: "Stablecoin Protection",
+    risks: ["Stablecoin Depegging Risk (50% weight)", "Smart Contract Risk (50% weight)"],
     costPerHundred: 0.15,
     availableProtection: "2500",
     maxProtection: "3000",
@@ -157,34 +149,22 @@ const GetProtection = () => {
 
         // Calculate base premium for $100 coverage
         const baseAmount = ethers.parseEther("100");
-        const aavePremium = await insurancePool.calculatePremium(baseAmount);
-        const rlusdPremium = await insurancePool.calculatePremium(baseAmount);
+        const premium = await insurancePool.calculatePremium(baseAmount);
 
-        // Fetch risk bucket data
-        const aaveRiskBucket = await insurancePool.getRiskBucket(0);
-        const rlusdRiskBucket = await insurancePool.getRiskBucket(1);
+        // Fetch risk bucket data for stablecoin depeg
+        const depegRiskBucket = await insurancePool.getRiskBucket(0); // STABLECOIN_DEPEG is 0
 
         // Get user's current coverage if any
         const userAddress = await signer.getAddress();
-        const aaveCoverage = await insurancePool.getCoverage(userAddress);
-        const rlusdCoverage = await insurancePool.getCoverage(userAddress);
+        const coverage = await insurancePool.getCoverage(userAddress);
 
-        setAaveProtection({
-          title: "Aave Protection",
-          risks: ["Stablecoin Depegging Risk (40% weight)", "Liquidity Risk (20% weight)", "Smart Contract Risk (40% weight)"],
-          costPerHundred: parseFloat(ethers.formatEther(aavePremium)),
-          availableProtection: ethers.formatEther(aaveRiskBucket.allocatedLiquidity),
-          maxProtection: ethers.formatEther(aaveRiskBucket.allocatedLiquidity),
-          currentBalance: aaveCoverage.isActive ? ethers.formatEther(aaveCoverage.amount) : 0
-        });
-
-        setRlusdProtection({
-          title: "RLUSD Protection",
-          risks: ["Stablecoin Depegging Risk (100% weight)"],
-          costPerHundred: parseFloat(ethers.formatEther(rlusdPremium)),
-          availableProtection: ethers.formatEther(rlusdRiskBucket.allocatedLiquidity),
-          maxProtection: ethers.formatEther(rlusdRiskBucket.allocatedLiquidity),
-          currentBalance: rlusdCoverage.isActive ? ethers.formatEther(rlusdCoverage.amount) : 0
+        setStablecoinProtection({
+          title: "Stablecoin Protection",
+          risks: ["Stablecoin Depegging Risk (50% weight)", "Smart Contract Risk (50% weight)"],
+          costPerHundred: parseFloat(ethers.formatEther(premium)),
+          availableProtection: ethers.formatEther(depegRiskBucket.allocatedLiquidity),
+          maxProtection: ethers.formatEther(depegRiskBucket.allocatedLiquidity),
+          currentBalance: coverage.isActive ? ethers.formatEther(coverage.amount) : 0
         });
 
         setError(null);
@@ -205,7 +185,7 @@ const GetProtection = () => {
     setSearchTerm('');
   };
 
-  const filteredProtections = [aaveProtection, rlusdProtection].filter(
+  const filteredProtections = [stablecoinProtection].filter(
     protection => protection.title.toLowerCase().includes(searchTerm)
   );
 
