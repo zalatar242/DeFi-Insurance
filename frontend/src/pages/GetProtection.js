@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import ProtectionCard from '../components/ProtectionCard';
+import { ethers } from 'ethers';
+import contracts from '../contracts.json';
 
 const Container = styled.div`
   max-width: 1200px;
@@ -109,16 +111,103 @@ const CardsContainer = styled.div`
   margin: 0 auto;
 `;
 
-const GetProtection = () => {
-  const aaveRisks = [
-    "Stablecoin Depegging Risk (40% weight)",
-    "Liquidity Risk (20% weight)",
-    "Smart Contract Risk (40% weight)"
-  ];
+const Message = styled.div`
+  text-align: center;
+  color: #666;
+  font-size: 16px;
+  margin: 40px 0;
+`;
 
-  const rlusdRisks = [
-    "Stablecoin Depegging Risk (100% weight)"
-  ];
+const GetProtection = () => {
+  const [aaveProtection, setAaveProtection] = useState({
+    title: "Aave Protection",
+    risks: ["Stablecoin Depegging Risk (40% weight)", "Liquidity Risk (20% weight)", "Smart Contract Risk (40% weight)"],
+    costPerHundred: 0.20,
+    availableProtection: "5089",
+    maxProtection: "5089",
+    currentBalance: 0
+  });
+  const [rlusdProtection, setRlusdProtection] = useState({
+    title: "RLUSD Protection",
+    risks: ["Stablecoin Depegging Risk (100% weight)"],
+    costPerHundred: 0.15,
+    availableProtection: "2500",
+    maxProtection: "3000",
+    currentBalance: 0
+  });
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!window.ethereum) {
+        setError("Please install MetaMask to use this feature");
+        return;
+      }
+
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        const insurancePool = new ethers.Contract(
+          contracts.InsurancePool.address,
+          contracts.InsurancePool.abi,
+          signer
+        );
+
+        // Calculate base premium for $100 coverage
+        const baseAmount = ethers.parseEther("100");
+        const aavePremium = await insurancePool.calculatePremium(baseAmount);
+        const rlusdPremium = await insurancePool.calculatePremium(baseAmount);
+
+        // Fetch risk bucket data
+        const aaveRiskBucket = await insurancePool.getRiskBucket(0);
+        const rlusdRiskBucket = await insurancePool.getRiskBucket(1);
+
+        // Get user's current coverage if any
+        const userAddress = await signer.getAddress();
+        const aaveCoverage = await insurancePool.getCoverage(userAddress);
+        const rlusdCoverage = await insurancePool.getCoverage(userAddress);
+
+        setAaveProtection({
+          title: "Aave Protection",
+          risks: ["Stablecoin Depegging Risk (40% weight)", "Liquidity Risk (20% weight)", "Smart Contract Risk (40% weight)"],
+          costPerHundred: parseFloat(ethers.formatEther(aavePremium)),
+          availableProtection: ethers.formatEther(aaveRiskBucket.allocatedLiquidity),
+          maxProtection: ethers.formatEther(aaveRiskBucket.allocatedLiquidity),
+          currentBalance: aaveCoverage.isActive ? ethers.formatEther(aaveCoverage.amount) : 0
+        });
+
+        setRlusdProtection({
+          title: "RLUSD Protection",
+          risks: ["Stablecoin Depegging Risk (100% weight)"],
+          costPerHundred: parseFloat(ethers.formatEther(rlusdPremium)),
+          availableProtection: ethers.formatEther(rlusdRiskBucket.allocatedLiquidity),
+          maxProtection: ethers.formatEther(rlusdRiskBucket.allocatedLiquidity),
+          currentBalance: rlusdCoverage.isActive ? ethers.formatEther(rlusdCoverage.amount) : 0
+        });
+
+        setError(null);
+      } catch (err) {
+        console.error("Error loading protection data:", err);
+        setError("Error loading protection data. Please make sure you are connected to the correct network.");
+      }
+    };
+
+    loadData();
+  }, []);
+
+  const handleSearch = (e) => {
+    setSearchTerm(e.target.value.toLowerCase());
+  };
+
+  const clearSearch = () => {
+    setSearchTerm('');
+  };
+
+  const filteredProtections = [aaveProtection, rlusdProtection].filter(
+    protection => protection.title.toLowerCase().includes(searchTerm)
+  );
 
   return (
     <Container>
@@ -131,10 +220,14 @@ const GetProtection = () => {
 
       <SearchContainer>
         <SearchBar>
-          <SearchInput placeholder="Search protocols..." />
+          <SearchInput
+            placeholder="Search protocols..."
+            value={searchTerm}
+            onChange={handleSearch}
+          />
         </SearchBar>
         <SearchOptions>
-          <ClearButton>Clear</ClearButton>
+          <ClearButton onClick={clearSearch}>Clear</ClearButton>
           <SortOptions>
             <span>Sort by</span>
             <NavLink>Relevance</NavLink>
@@ -142,24 +235,23 @@ const GetProtection = () => {
         </SearchOptions>
       </SearchContainer>
 
-      <CardsContainer>
-        <ProtectionCard
-          title="Aave Protection"
-          risks={aaveRisks}
-          costPerHundred={0.20}
-          availableProtection={5089}
-          maxProtection={5089}
-          currentBalance={0}
-        />
-        <ProtectionCard
-          title="RLUSD Protection"
-          risks={rlusdRisks}
-          costPerHundred={0.15}
-          availableProtection={2500}
-          maxProtection={3000}
-          currentBalance={0}
-        />
-      </CardsContainer>
+      {error ? (
+        <Message>{error}</Message>
+      ) : (
+        <CardsContainer>
+          {filteredProtections.map((protection, index) => (
+            <ProtectionCard
+              key={index}
+              title={protection.title}
+              risks={protection.risks}
+              costPerHundred={protection.costPerHundred}
+              availableProtection={parseFloat(protection.availableProtection)}
+              maxProtection={parseFloat(protection.maxProtection)}
+              currentBalance={protection.currentBalance}
+            />
+          ))}
+        </CardsContainer>
+      )}
     </Container>
   );
 };

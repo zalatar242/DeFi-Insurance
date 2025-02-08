@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { AccountBalanceWallet, LocalAtm, Security, Warning } from '@mui/icons-material';
+import { ethers, formatEther } from 'ethers';
+import contracts from '../contracts.json';
 
 const Container = styled.div`
   max-width: 1200px;
@@ -100,6 +102,24 @@ const APY = styled.div`
   margin: 24px 0;
 `;
 
+const InputGroup = styled.div`
+  margin: 16px 0;
+`;
+
+const AmountInput = styled.input`
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 16px;
+  margin-top: 8px;
+
+  &:focus {
+    outline: none;
+    border-color: #6c5ce7;
+  }
+`;
+
 const ProvideButton = styled.button`
   width: 100%;
   background: #6c5ce7;
@@ -120,41 +140,223 @@ const ProvideButton = styled.button`
   &:active {
     transform: translateY(0);
   }
+
+  &:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+  }
+`;
+
+const Message = styled.div`
+  text-align: center;
+  color: #666;
+  font-size: 16px;
+  margin: 40px 0;
 `;
 
 const ProvideProtection = () => {
-  const riskBuckets = [
-    {
-      title: "Stablecoin Depeg",
-      weight: "40%",
-      icon: <Warning />,
-      color: "#6c5ce7",
-      apy: "4.2%",
-      allocatedLiquidity: "5,089",
-      utilization: "45%",
-      description: "Protection against stablecoin depegging events"
-    },
-    {
-      title: "Liquidity Shortage",
-      weight: "20%",
-      icon: <LocalAtm />,
-      color: "#00d2d3",
-      apy: "2.8%",
-      allocatedLiquidity: "2,500",
-      utilization: "30%",
-      description: "Protection against protocol liquidity shortages"
-    },
-    {
-      title: "Smart Contract Risk",
-      weight: "40%",
-      icon: <Security />,
-      color: "#ff7675",
-      apy: "3.6%",
-      allocatedLiquidity: "5,089",
-      utilization: "40%",
-      description: "Protection against smart contract vulnerabilities"
+  const [riskBuckets, setRiskBuckets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [amounts, setAmounts] = useState({
+    STABLECOIN_DEPEG: "",
+    LIQUIDITY_SHORTAGE: "",
+    SMART_CONTRACT: ""
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  // Constants from smart contract
+  const BASIS_POINTS = 10000;
+  const UTILIZATION_BREAKPOINT = 5000; // 50%
+  const BASE_PREMIUM_RATE = 200; // 2% annual
+  const MAX_PREMIUM_RATE = 600; // 6% annual
+
+  const formatUtilization = (utilizationRate) => {
+    return (Number(utilizationRate) * 100 / 1e18).toFixed(1);
+  };
+
+  const formatLiquidity = (liquidity) => {
+    const inEth = Number(formatEther(liquidity));
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(inEth);
+  };
+
+  const calculateAPY = (utilization) => {
+    // Convert utilization from basis points to same scale as contract
+    const utilizationBP = Math.floor(Number(utilization) * 100);
+
+    let multiplier;
+    if (utilizationBP <= UTILIZATION_BREAKPOINT) {
+      // Linear increase up to breakpoint
+      multiplier = BASIS_POINTS + utilizationBP;
+    } else {
+      // Quadratic increase after breakpoint
+      const excess = utilizationBP - UTILIZATION_BREAKPOINT;
+      multiplier = BASIS_POINTS + UTILIZATION_BREAKPOINT + ((excess * excess) / BASIS_POINTS);
     }
-  ];
+
+    const adjustedRate = Math.min(
+      (BASE_PREMIUM_RATE * multiplier) / BASIS_POINTS,
+      MAX_PREMIUM_RATE
+    );
+
+    return `${(adjustedRate / 100).toFixed(2)}%`;
+  };
+
+  const handleAmountChange = (riskType, value) => {
+    setAmounts(prev => ({
+      ...prev,
+      [riskType]: value
+    }));
+  };
+
+  const handleProvideLiquidity = async (riskType) => {
+    if (!window.ethereum || !amounts[riskType]) return;
+
+    try {
+      setSubmitting(true);
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const insurancePool = new ethers.Contract(
+        contracts.InsurancePool.address,
+        contracts.InsurancePool.abi,
+        signer
+      );
+
+      // Calculate allocations - 100% to selected bucket
+      const allocations = [0, 0, 0];
+      const index = {
+        STABLECOIN_DEPEG: 0,
+        LIQUIDITY_SHORTAGE: 1,
+        SMART_CONTRACT: 2
+      }[riskType];
+      allocations[index] = BASIS_POINTS; // 100% in basis points
+
+      // Convert amount to wei
+      const amountInWei = ethers.parseEther(amounts[riskType]);
+
+      // Call addLiquidity with allocations array
+      const tx = await insurancePool.addLiquidity(
+        allocations,
+        { value: amountInWei }
+      );
+      await tx.wait();
+
+      // Clear input and refresh data
+      setAmounts(prev => ({
+        ...prev,
+        [riskType]: ""
+      }));
+      loadData();
+      setError(null);
+    } catch (err) {
+      console.error("Error providing liquidity:", err);
+      setError(`Failed to provide liquidity: ${err.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const loadData = async () => {
+    if (!window.ethereum) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const insurancePool = new ethers.Contract(
+        contracts.InsurancePool.address,
+        contracts.InsurancePool.abi,
+        signer
+      );
+
+      const RiskType = {
+        STABLECOIN_DEPEG: 0,
+        LIQUIDITY_SHORTAGE: 1,
+        SMART_CONTRACT: 2
+      };
+
+      const [
+        stablecoinRiskBucket,
+        liquidityRiskBucket,
+        smartContractRiskBucket,
+        stablecoinWeight,
+        liquidityWeight,
+        smartContractWeight
+      ] = await Promise.all([
+        insurancePool.getRiskBucket(RiskType.STABLECOIN_DEPEG),
+        insurancePool.getRiskBucket(RiskType.LIQUIDITY_SHORTAGE),
+        insurancePool.getRiskBucket(RiskType.SMART_CONTRACT),
+        insurancePool.getBucketWeight(RiskType.STABLECOIN_DEPEG),
+        insurancePool.getBucketWeight(RiskType.LIQUIDITY_SHORTAGE),
+        insurancePool.getBucketWeight(RiskType.SMART_CONTRACT)
+      ]);
+
+      setRiskBuckets([
+        {
+          type: "STABLECOIN_DEPEG",
+          title: "Stablecoin Depeg",
+          weight: `${(Number(stablecoinWeight) / 100).toFixed(0)}%`,
+          icon: <Warning />,
+          color: "#6c5ce7",
+          apy: calculateAPY(formatUtilization(stablecoinRiskBucket.utilizationRate)),
+          allocatedLiquidity: formatLiquidity(stablecoinRiskBucket.allocatedLiquidity),
+          utilization: `${formatUtilization(stablecoinRiskBucket.utilizationRate)}%`,
+          description: "Protection against stablecoin depegging events"
+        },
+        {
+          type: "LIQUIDITY_SHORTAGE",
+          title: "Liquidity Shortage",
+          weight: `${(Number(liquidityWeight) / 100).toFixed(0)}%`,
+          icon: <LocalAtm />,
+          color: "#00d2d3",
+          apy: calculateAPY(formatUtilization(liquidityRiskBucket.utilizationRate)),
+          allocatedLiquidity: formatLiquidity(liquidityRiskBucket.allocatedLiquidity),
+          utilization: `${formatUtilization(liquidityRiskBucket.utilizationRate)}%`,
+          description: "Protection against protocol liquidity shortages"
+        },
+        {
+          type: "SMART_CONTRACT",
+          title: "Smart Contract Risk",
+          weight: `${(Number(smartContractWeight) / 100).toFixed(0)}%`,
+          icon: <Security />,
+          color: "#ff7675",
+          apy: calculateAPY(formatUtilization(smartContractRiskBucket.utilizationRate)),
+          allocatedLiquidity: formatLiquidity(smartContractRiskBucket.allocatedLiquidity),
+          utilization: `${formatUtilization(smartContractRiskBucket.utilizationRate)}%`,
+          description: "Protection against smart contract vulnerabilities"
+        }
+      ]);
+
+      setError(null);
+    } catch (err) {
+      console.error("Error loading risk bucket data:", err);
+      setError("Error loading risk bucket data. Please make sure you are connected to the correct network.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  if (loading) {
+    return (
+      <Container>
+        <Header>
+          <Title>Provide Protection</Title>
+        </Header>
+        <Message>Loading risk bucket data...</Message>
+      </Container>
+    );
+  }
 
   return (
     <Container>
@@ -166,43 +368,67 @@ const ProvideProtection = () => {
         </Description>
       </Header>
 
-      <CardsContainer>
-        {riskBuckets.map((bucket, index) => (
-          <Card key={index}>
-            <CardHeader>
-              <CardIcon color={bucket.color}>
-                {bucket.icon}
-              </CardIcon>
-              <div>
-                <CardTitle>{bucket.title}</CardTitle>
-                <CardWeight>Weight: {bucket.weight}</CardWeight>
-              </div>
-            </CardHeader>
+      {error ? (
+        <Message>{error}</Message>
+      ) : (
+        <CardsContainer>
+          {riskBuckets.map((bucket, index) => (
+            <Card key={index}>
+              <CardHeader>
+                <CardIcon color={bucket.color}>
+                  {bucket.icon}
+                </CardIcon>
+                <div>
+                  <CardTitle>{bucket.title}</CardTitle>
+                  <CardWeight>Weight: {bucket.weight}</CardWeight>
+                </div>
+              </CardHeader>
 
-            <APY>{bucket.apy} APY</APY>
+              <APY>{bucket.apy} APY</APY>
 
-            <InfoRow>
-              <Label>Allocated Liquidity</Label>
-              <Value>${bucket.allocatedLiquidity}</Value>
-            </InfoRow>
+              <InfoRow>
+                <Label>Allocated Liquidity</Label>
+                <Value>${bucket.allocatedLiquidity}</Value>
+              </InfoRow>
 
-            <InfoRow>
-              <Label>Utilization</Label>
-              <Value>{bucket.utilization}</Value>
-            </InfoRow>
+              <InfoRow>
+                <Label>Utilization</Label>
+                <Value>{bucket.utilization}</Value>
+              </InfoRow>
 
-            <InfoRow>
-              <Label>Risk Type</Label>
-              <Value>{bucket.description}</Value>
-            </InfoRow>
+              <InfoRow>
+                <Label>Risk Type</Label>
+                <Value>{bucket.description}</Value>
+              </InfoRow>
 
-            <ProvideButton>
-              <AccountBalanceWallet style={{ marginRight: 8 }} />
-              Provide Liquidity
-            </ProvideButton>
-          </Card>
-        ))}
-      </CardsContainer>
+              <InputGroup>
+                <Label>Amount to Provide (ETH)</Label>
+                <AmountInput
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  placeholder="0.0"
+                  value={amounts[bucket.type] || ""}
+                  onChange={(e) => handleAmountChange(bucket.type, e.target.value)}
+                  disabled={!window.ethereum || submitting}
+                />
+              </InputGroup>
+
+              <ProvideButton
+                disabled={!window.ethereum || submitting || !amounts[bucket.type]}
+                onClick={() => handleProvideLiquidity(bucket.type)}
+              >
+                <AccountBalanceWallet style={{ marginRight: 8 }} />
+                {!window.ethereum
+                  ? "Install MetaMask"
+                  : submitting
+                    ? "Processing..."
+                    : "Provide Liquidity"}
+              </ProvideButton>
+            </Card>
+          ))}
+        </CardsContainer>
+      )}
     </Container>
   );
 };

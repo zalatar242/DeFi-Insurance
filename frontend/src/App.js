@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import GetProtection from './pages/GetProtection';
 import ProvideProtection from './pages/ProvideProtection';
+import { ethers } from 'ethers';
 
 const Container = styled.div`
   min-height: 100vh;
@@ -69,19 +70,53 @@ const ConnectButton = styled.button`
   &:active {
     transform: translateY(0);
   }
+
+  &:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+  }
 `;
 
 const App = () => {
+  const [account, setAccount] = useState(null);
+  const [isMetaMaskInstalled, setIsMetaMaskInstalled] = useState(!!window.ethereum);
+
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      window.open('https://metamask.io/download/', '_blank');
+      return;
+    }
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const accounts = await provider.send("eth_requestAccounts", []);
+      setAccount(accounts[0]);
+    } catch (error) {
+      console.error("User denied account access");
+    }
+  };
+
   return (
     <Router>
       <Container>
         <Header>
-          <Logo>DeFi Insurance</Logo>
+          <Logo>CoverMax</Logo>
           <Nav>
             <NavLink to="/">Get Protection</NavLink>
             <NavLink to="/provide">Provide Protection</NavLink>
             <NavLink to="/create">Create</NavLink>
-            <ConnectButton>Connect Wallet</ConnectButton>
+            {account ? (
+              <div>Connected: {account.slice(0, 6)}...{account.slice(-4)}</div>
+            ) : (
+              <ConnectButton
+                onClick={connectWallet}
+                disabled={!isMetaMaskInstalled}
+                title={!isMetaMaskInstalled ? "Please install MetaMask" : ""}
+              >
+                {isMetaMaskInstalled ? "Connect Wallet" : "Install MetaMask"}
+              </ConnectButton>
+            )}
           </Nav>
         </Header>
 

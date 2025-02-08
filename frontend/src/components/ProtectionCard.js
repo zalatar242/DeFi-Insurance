@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 import { AccountBalanceWallet, Search, Shield } from '@mui/icons-material';
+import { ethers } from 'ethers';
+import contracts from '../contracts.json';
 
 const Card = styled.div`
   background: white;
@@ -106,6 +108,52 @@ const Divider = styled.div`
   margin: 24px 0;
 `;
 
+const InputContainer = styled.div`
+  margin: 24px 0;
+`;
+
+const Input = styled.input`
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #f0f0f0;
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+
+  &:focus {
+    border-color: #6c5ce7;
+  }
+`;
+
+const Button = styled.button`
+  width: 100%;
+  padding: 14px;
+  background: #6c5ce7;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+
+  &:hover {
+    opacity: 0.9;
+  }
+
+  &:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+  }
+`;
+
+const ErrorMessage = styled.div`
+  color: #ff4757;
+  font-size: 14px;
+  margin-top: 8px;
+`;
+
 const ProtectionCard = ({
   title,
   risks,
@@ -114,7 +162,79 @@ const ProtectionCard = ({
   maxProtection,
   currentBalance
 }) => {
+  const [protectionAmount, setProtectionAmount] = useState('100');
+  const [error, setError] = useState('');
+  const [calculatedPremium, setCalculatedPremium] = useState(null);
+  const [requiredDeposit, setRequiredDeposit] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
   const progressPercentage = (availableProtection / maxProtection) * 100;
+
+  const calculateProtectionCost = async (amount) => {
+    if (!amount || isNaN(amount)) return;
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const insurancePool = new ethers.Contract(
+        contracts.InsurancePool.address,
+        contracts.InsurancePool.abi,
+        signer
+      );
+
+      const coverageAmount = ethers.parseEther(amount.toString());
+      const premium = await insurancePool.calculatePremium(coverageAmount);
+      const deposit = await insurancePool.calculateRequiredDeposit(coverageAmount);
+
+      setCalculatedPremium(ethers.formatEther(premium));
+      setRequiredDeposit(ethers.formatEther(deposit));
+      setError('');
+    } catch (err) {
+      console.error("Error calculating protection cost:", err);
+      setError('Error calculating protection cost');
+    }
+  };
+
+  const handleAmountChange = (e) => {
+    const value = e.target.value;
+    setProtectionAmount(value);
+    if (value && !isNaN(value)) {
+      calculateProtectionCost(value);
+    }
+  };
+
+  const handlePurchaseProtection = async () => {
+    if (!protectionAmount || isNaN(protectionAmount)) {
+      setError('Please enter a valid amount');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const insurancePool = new ethers.Contract(
+        contracts.InsurancePool.address,
+        contracts.InsurancePool.abi,
+        signer
+      );
+
+      const coverageAmount = ethers.parseEther(protectionAmount.toString());
+      const deposit = await insurancePool.calculateRequiredDeposit(coverageAmount);
+
+      const tx = await insurancePool.purchaseCoverage(coverageAmount, {
+        value: deposit
+      });
+      await tx.wait();
+
+      setError('');
+    } catch (err) {
+      console.error("Error purchasing protection:", err);
+      setError(err.message || 'Error purchasing protection');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <Card>
@@ -124,9 +244,35 @@ const ProtectionCard = ({
       </Title>
 
       <PriceSection>
-        <PriceLabel>Cost for $100 Protection</PriceLabel>
+        <PriceLabel>Base Cost for $100 Protection</PriceLabel>
         <Price>${costPerHundred}</Price>
       </PriceSection>
+
+      <InputContainer>
+        <PriceLabel>Protection Amount (USD)</PriceLabel>
+        <Input
+          type="number"
+          min="100"
+          step="100"
+          value={protectionAmount}
+          onChange={handleAmountChange}
+          placeholder="Enter amount..."
+        />
+      </InputContainer>
+
+      {calculatedPremium && (
+        <InfoRow>
+          <Label>Premium Cost</Label>
+          <Value>${parseFloat(calculatedPremium).toFixed(4)} ETH</Value>
+        </InfoRow>
+      )}
+
+      {requiredDeposit && (
+        <InfoRow>
+          <Label>Required Deposit</Label>
+          <Value>${parseFloat(requiredDeposit).toFixed(4)} ETH</Value>
+        </InfoRow>
+      )}
 
       <RiskList>
         {risks.map((risk, index) => (
@@ -162,6 +308,15 @@ const ProtectionCard = ({
           {currentBalance} USDC
         </Value>
       </InfoRow>
+
+      <Button
+        onClick={handlePurchaseProtection}
+        disabled={isLoading || !calculatedPremium || !requiredDeposit}
+      >
+        {isLoading ? 'Processing...' : 'Purchase Protection'}
+      </Button>
+
+      {error && <ErrorMessage>{error}</ErrorMessage>}
     </Card>
   );
 };
