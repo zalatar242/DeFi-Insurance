@@ -102,15 +102,6 @@ async function main() {
 const remainingBalance = await rlusd.balanceOf(deployerAddress);
 console.log("Remaining RLUSD Balance:", formatEther(remainingBalance));
 
-// Transfer 100 RLUSD to a different address
-const recipientAddress = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"; // Different test account
-const transferAmount = parseEther("100");
-await rlusd.transfer(recipientAddress, transferAmount);
-console.log("Transferred 100 RLUSD to:", recipientAddress);
-
-const recipientBalance = await rlusd.balanceOf(recipientAddress);
-console.log("Recipient RLUSD Balance:", formatEther(recipientBalance));
-
 // Save contract addresses and ABIs to a JSON file
   // Save contract addresses and ABIs to a JSON file
   const fs = require('fs');
@@ -126,6 +117,10 @@ console.log("Recipient RLUSD Balance:", formatEther(recipientBalance));
     PayoutManager: {
       address: payoutManager.address,
       abi: PayoutManager.interface.format('json')
+    },
+    RLUSD: {
+      address: rlusd.address,
+      abi: RLUSDMock.interface.format('json')
     }
   };
   fs.writeFileSync(
