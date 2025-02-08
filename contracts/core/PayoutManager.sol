@@ -81,6 +81,11 @@ contract PayoutManager is IPayoutManager {
         paused = true; // Start paused for setup
     }
 
+    // Internal time functions - can be overridden with a more secure time oracle in production
+    function _getTimeNow() internal view virtual returns (uint256) {
+        return block.timestamp; // Mock implementation - could use a more secure time source in production
+    }
+
     // Core functions
     function checkAndTriggerPayout() external nonReentrant whenNotPaused returns (bool) {
         require(address(oracle) != address(0), "Oracle not set");
@@ -104,19 +109,74 @@ contract PayoutManager is IPayoutManager {
         uint256 totalCoverage = calculateTotalAffectedCoverage(triggerType);
         require(totalCoverage > 0, "No affected coverage");
 
+        uint256 currentTime = _getTimeNow();
         currentPayoutState = PayoutState({
             isActive: true,
             riskType: triggerType,
-            triggerTime: block.timestamp,
+            triggerTime: currentTime,
             totalCoverage: totalCoverage,
             isFirstPhaseComplete: false,
             isSecondPhaseComplete: false
         });
 
-        emit PayoutTriggered(triggerType, block.timestamp, totalCoverage);
+        emit PayoutTriggered(triggerType, currentTime, totalCoverage);
         return true;
     }
 
+    function processFirstPhasePayout(address buyer) external nonReentrant whenNotPaused returns (uint256) {
+        require(canClaimFirstPhase(buyer), "Cannot claim first phase");
+
+        uint256 amount = calculatePayoutAmount(buyer);
+        require(amount > 0, "No payout available");
+
+        uint256 firstPhaseAmount = (amount * _firstPhasePercentage()) / BASIS_POINTS;
+        uint256 currentTime = _getTimeNow();
+        uint256 delay = _secondPhaseDelay();
+
+        // Initialize payout in insurance pool
+        insurancePool.initiatePayout(
+            buyer,
+            amount,
+            currentTime + delay,
+            currentPayoutState.riskType
+        );
+
+        // Mark first phase as complete in insurance pool
+        insurancePool.updatePayoutState(buyer, true, false);
+
+        emit FirstPhaseInitiated(buyer, firstPhaseAmount, currentTime);
+        emit SecondPhaseInitiated(buyer, amount - firstPhaseAmount, currentTime + delay);
+
+        return firstPhaseAmount;
+    }
+
+    function processSecondPhasePayout(address buyer) external nonReentrant whenNotPaused returns (uint256) {
+        require(canClaimSecondPhase(buyer), "Cannot claim second phase");
+
+        uint256 amount = calculatePayoutAmount(buyer);
+        require(amount > 0, "No payout available");
+
+        uint256 secondPhaseAmount = amount - (amount * _firstPhasePercentage()) / BASIS_POINTS;
+
+        // Update payout state in insurance pool
+        insurancePool.updatePayoutState(buyer, true, true);
+
+        // Update local payout state
+        currentPayoutState.isSecondPhaseComplete = true;
+
+        emit PayoutProcessed(buyer, secondPhaseAmount, false);
+        return secondPhaseAmount;
+    }
+
+    function validatePayoutConditions() external view returns (bool) {
+        if (address(oracle) == address(0) || address(insurancePool) == address(0)) {
+            return false;
+        }
+
+        // Check all risk types for trigger conditions
+        for (uint i = 0; i < 3; i++) {
+            IInsurancePool.RiskType riskType = IInsurancePool.RiskType(i);
+            if (oracle.isRiskConditionMet(riskType)) {
                 return true;
             }
         }
@@ -139,7 +199,7 @@ contract PayoutManager is IPayoutManager {
             return false;
         }
 
-        if (block.timestamp < currentPayoutState.triggerTime + TRIGGER_CONFIRMATION_PERIOD) {
+        if (_getTimeNow() < currentPayoutState.triggerTime + _triggerConfirmationPeriod()) {
             return false;
         }
 
@@ -157,7 +217,7 @@ contract PayoutManager is IPayoutManager {
             return false;
         }
 
-        if (block.timestamp < payout.unlockTime) {
+        if (_getTimeNow() < payout.unlockTime) {
             return false;
         }
 
@@ -183,23 +243,6 @@ contract PayoutManager is IPayoutManager {
         return currentPayoutState.riskType;
     }
 
-    // Constants
-    function FIRST_PHASE_PERCENTAGE() external pure returns (uint256) {
-        return 5000; // 50%
-    }
-
-    function SECOND_PHASE_DELAY() external pure returns (uint256) {
-        return 72 hours;
-    }
-
-    function TRIGGER_CONFIRMATION_PERIOD() external pure returns (uint256) {
-        return 24 hours;
-    }
-
-    function MAX_PAYOUT_RATIO() external pure returns (uint256) {
-        return 8000; // 80%
-    }
-
     // Internal functions
     function calculateTotalAffectedCoverage(IInsurancePool.RiskType riskType) internal view returns (uint256) {
         IInsurancePool.RiskBucket memory bucket = insurancePool.getRiskBucket(riskType);
@@ -209,7 +252,7 @@ contract PayoutManager is IPayoutManager {
             return 0;
         }
 
-        uint256 maxPayout = (totalLiquidity * MAX_PAYOUT_RATIO) / BASIS_POINTS;
+        uint256 maxPayout = (totalLiquidity * _maxPayoutRatio()) / BASIS_POINTS;
         return bucket.activeCoverage > maxPayout ? maxPayout : bucket.activeCoverage;
     }
 

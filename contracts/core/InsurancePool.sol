@@ -31,16 +31,16 @@ contract InsurancePool is IInsurancePool {
 
     // Fixed bucket weights (in basis points, 100 = 1%)
     uint256 private constant STABLECOIN_WEIGHT = 4000; // 40%
-    uint256 private constant LIQUIDITY_WEIGHT = 2000;  // 20%
+    uint256 private constant LIQUIDITY_WEIGHT = 2000; // 20%
     uint256 private constant SMART_CONTRACT_WEIGHT = 4000; // 40%
 
     // Coverage parameters
     uint256 public constant COVERAGE_DURATION = 30 days;
     uint256 public constant SECURITY_DEPOSIT_RATIO = 2000; // 20%
-    uint256 public constant BASE_PREMIUM_RATE = 200;  // 2% annual (in basis points)
+    uint256 public constant BASE_PREMIUM_RATE = 200; // 2% annual (in basis points)
     uint256 public constant MAX_COVERAGE = 10_000_000e18; // $10M in wei
-    uint256 public constant MIN_COVERAGE = 1_000e18;    // $1K in wei
-    uint256 public constant INITIAL_FEE_RATE = 50;     // 0.5% in basis points
+    uint256 public constant MIN_COVERAGE = 1_000e18; // $1K in wei
+    uint256 public constant INITIAL_FEE_RATE = 50; // 0.5% in basis points
 
     // Time delays
     uint256 public constant UNLOCK_PERIOD = 7 days;
@@ -51,15 +51,18 @@ contract InsurancePool is IInsurancePool {
         uint256[3] amounts,
         uint256 unlockTime
     );
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
     event PayoutManagerSet(address indexed newPayoutManager);
     event OracleSet(address indexed newOracle);
 
     // Structs
     struct UnlockRequest {
-        uint256[3] amounts;       // Amount to withdraw from each bucket
-        uint256 unlockTime;       // When withdrawal becomes available
-        bool isActive;            // Whether request is still valid
+        uint256[3] amounts; // Amount to withdraw from each bucket
+        uint256 unlockTime; // When withdrawal becomes available
+        bool isActive; // Whether request is still valid
     }
 
     // Risk buckets
@@ -81,8 +84,39 @@ contract InsurancePool is IInsurancePool {
 
     // Premium calculation parameters
     uint256 private constant UTILIZATION_BREAKPOINT = 5000; // 50%
-    uint256 private constant MAX_PREMIUM_RATE = 600;   // 6% annual (in basis points)
+    uint256 private constant MAX_PREMIUM_RATE = 600; // 6% annual (in basis points)
     uint256 private constant BASIS_POINTS = 10000;
+
+    // Internal functions
+    function _calculateBucketPremium(
+        RiskType bucket,
+        uint256 coverageAmount
+    ) private view returns (uint256) {
+        RiskBucket storage riskBucket = riskBuckets[bucket];
+        uint256 utilization = riskBucket.utilizationRate;
+
+        uint256 multiplier;
+        if (utilization <= UTILIZATION_BREAKPOINT) {
+            // Linear increase up to breakpoint
+            multiplier = BASIS_POINTS + utilization;
+        } else {
+            // Quadratic increase after breakpoint
+            uint256 excess = utilization - UTILIZATION_BREAKPOINT;
+            multiplier =
+                BASIS_POINTS +
+                UTILIZATION_BREAKPOINT +
+                ((excess * excess) / BASIS_POINTS);
+        }
+
+        uint256 adjustedRate = (BASE_PREMIUM_RATE * multiplier) / BASIS_POINTS;
+        if (adjustedRate > MAX_PREMIUM_RATE) {
+            adjustedRate = MAX_PREMIUM_RATE;
+        }
+
+        return
+            (coverageAmount * adjustedRate * COVERAGE_DURATION) /
+            (365 days * BASIS_POINTS);
+    }
 
     constructor() {
         owner = msg.sender;
@@ -115,17 +149,15 @@ contract InsurancePool is IInsurancePool {
     }
 
     // View functions
-    function getBucketWeight(RiskType bucket) public pure returns (uint256) {
-        if (bucket == RiskType.STABLECOIN_DEPEG) return STABLECOIN_WEIGHT;
-        if (bucket == RiskType.LIQUIDITY_SHORTAGE) return LIQUIDITY_WEIGHT;
-        return SMART_CONTRACT_WEIGHT;
-    }
-
-    function getRiskBucket(RiskType bucket) external view returns (RiskBucket memory) {
+    function getRiskBucket(
+        RiskType bucket
+    ) external view returns (RiskBucket memory) {
         return riskBuckets[bucket];
     }
 
-    function getProviderAllocations(address provider) external view returns (BucketAllocation memory) {
+    function getProviderAllocations(
+        address provider
+    ) external view returns (BucketAllocation memory) {
         return providerAllocations[provider];
     }
 
@@ -133,73 +165,97 @@ contract InsurancePool is IInsurancePool {
         return totalLiquidity;
     }
 
-    function getUtilizationRate(RiskType bucket) external view returns (uint256) {
+    function getUtilizationRate(
+        RiskType bucket
+    ) external view returns (uint256) {
         return riskBuckets[bucket].utilizationRate;
     }
 
-    function getDelayedPayout(address buyer) external view returns (DelayedPayout memory) {
+    function getDelayedPayout(
+        address buyer
+    ) external view returns (DelayedPayout memory) {
         return delayedPayouts[buyer];
     }
 
-    function getCoverage(address buyer) external view returns (Coverage memory) {
+    function getCoverage(
+        address buyer
+    ) external view returns (Coverage memory) {
         return activeCoverages[buyer];
     }
 
-    function calculatePremium(uint256 coverageAmount) public view returns (uint256) {
+    function getBucketWeight(RiskType bucket) external pure returns (uint256) {
+        _getBucketWeight(bucket);
+    }
+
+    function _getBucketWeight(RiskType bucket) internal pure returns (uint256) {
+        if (bucket == RiskType.STABLECOIN_DEPEG) return STABLECOIN_WEIGHT;
+        if (bucket == RiskType.LIQUIDITY_SHORTAGE) return LIQUIDITY_WEIGHT;
+        return SMART_CONTRACT_WEIGHT;
+    }
+
+    function calculatePremium(
+        uint256 coverageAmount
+    ) external view returns (uint256) {
+        return _calculatePremium(coverageAmount);
+    }
+
+    function _calculatePremium(
+        uint256 coverageAmount
+    ) internal view returns (uint256) {
         uint256 totalPremium = 0;
 
         for (uint256 i = 0; i < 3; i++) {
             RiskType bucket = RiskType(i);
-            uint256 weight = getBucketWeight(bucket);
-            uint256 bucketPremium = _calculateBucketPremium(bucket, coverageAmount);
+            uint256 weight = _getBucketWeight(bucket);
+            uint256 bucketPremium = _calculateBucketPremium(
+                bucket,
+                coverageAmount
+            );
             totalPremium += (bucketPremium * weight) / BASIS_POINTS;
         }
 
         return totalPremium;
     }
 
-    function calculateRequiredDeposit(uint256 coverageAmount) public pure returns (uint256) {
+    function calculateRequiredDeposit(
+        uint256 coverageAmount
+    ) external pure returns (uint256) {
+        return _calculateRequiredDeposit(coverageAmount);
+    }
+
+    function _calculateRequiredDeposit(
+        uint256 coverageAmount
+    ) internal pure returns (uint256) {
         return (coverageAmount * SECURITY_DEPOSIT_RATIO) / BASIS_POINTS;
     }
 
-    function _calculateBucketPremium(RiskType bucket, uint256 coverageAmount) private view returns (uint256) {
-        RiskBucket storage riskBucket = riskBuckets[bucket];
-        uint256 utilization = riskBucket.utilizationRate;
-
-        uint256 multiplier;
-        if (utilization <= UTILIZATION_BREAKPOINT) {
-            // Linear increase up to breakpoint
-            multiplier = BASIS_POINTS + utilization;
-        } else {
-            // Quadratic increase after breakpoint
-            uint256 excess = utilization - UTILIZATION_BREAKPOINT;
-            multiplier = BASIS_POINTS + UTILIZATION_BREAKPOINT + ((excess * excess) / BASIS_POINTS);
-        }
-
-        uint256 adjustedRate = (BASE_PREMIUM_RATE * multiplier) / BASIS_POINTS;
-        if (adjustedRate > MAX_PREMIUM_RATE) {
-            adjustedRate = MAX_PREMIUM_RATE;
-        }
-
-        return (coverageAmount * adjustedRate * COVERAGE_DURATION) / (365 days * BASIS_POINTS);
-    }
-
     // Core functions
-    function purchaseCoverage(uint256 amount) external payable nonReentrant whenNotPaused {
+    function purchaseCoverage(
+        uint256 amount
+    ) external payable nonReentrant whenNotPaused {
         require(amount >= MIN_COVERAGE, "Below minimum coverage");
         require(amount <= MAX_COVERAGE, "Exceeds maximum coverage");
-        require(!activeCoverages[msg.sender].isActive, "Active coverage exists");
+        require(
+            !activeCoverages[msg.sender].isActive,
+            "Active coverage exists"
+        );
 
-        uint256 requiredDeposit = calculateRequiredDeposit(amount);
+        uint256 requiredDeposit = _calculateRequiredDeposit(amount);
         require(msg.value >= requiredDeposit, "Insufficient security deposit");
 
         // Calculate premium and initial fee
-        uint256 premium = calculatePremium(amount);
-        uint256 initialFee = (requiredDeposit * INITIAL_FEE_RATE) / BASIS_POINTS;
+        uint256 premium = _calculatePremium(amount);
+        uint256 initialFee = (requiredDeposit * INITIAL_FEE_RATE) /
+            BASIS_POINTS;
         uint256 remainingDeposit = requiredDeposit - initialFee;
 
         // Update coverage state
-        _updateCoverageState(msg.sender, amount, requiredDeposit, remainingDeposit);
+        _updateCoverageState(
+            msg.sender,
+            amount,
+            requiredDeposit,
+            remainingDeposit
+        );
 
         // Update risk bucket utilization
         totalActiveCoverage += amount;
@@ -209,12 +265,16 @@ contract InsurancePool is IInsurancePool {
 
         // Return excess deposit if any
         if (msg.value > requiredDeposit) {
-            (bool success, ) = msg.sender.call{value: msg.value - requiredDeposit}("");
+            (bool success, ) = msg.sender.call{
+                value: msg.value - requiredDeposit
+            }("");
             require(success, "Refund failed");
         }
     }
 
-    function addLiquidity(uint256[3] calldata allocations) external payable nonReentrant whenNotPaused {
+    function addLiquidity(
+        uint256[3] calldata allocations
+    ) external payable nonReentrant whenNotPaused {
         require(msg.value > 0, "No deposit provided");
 
         uint256 totalAllocation = 0;
@@ -240,14 +300,19 @@ contract InsurancePool is IInsurancePool {
         emit LiquidityAdded(msg.sender, msg.value, allocations);
     }
 
-    function requestWithdraw(uint256[3] calldata amounts) external nonReentrant whenNotPaused {
+    function requestWithdraw(
+        uint256[3] calldata amounts
+    ) external nonReentrant whenNotPaused {
         uint256 totalWithdrawal = 0;
-        BucketAllocation storage providerAlloc = providerAllocations[msg.sender];
+        BucketAllocation storage providerAlloc = providerAllocations[
+            msg.sender
+        ];
 
         // Verify withdrawal amounts against allocations
         for (uint256 i = 0; i < 3; i++) {
             RiskType bucket = RiskType(i);
-            uint256 maxAmount = (totalLiquidity * providerAlloc.allocations[i]) / BASIS_POINTS;
+            uint256 maxAmount = (totalLiquidity *
+                providerAlloc.allocations[i]) / BASIS_POINTS;
             require(amounts[i] <= maxAmount, "Exceeds allocation");
             totalWithdrawal += amounts[i];
         }
@@ -255,18 +320,29 @@ contract InsurancePool is IInsurancePool {
         require(totalWithdrawal > 0, "Nothing to withdraw");
 
         // Create withdrawal request
-        unlockRequests[msg.sender].push(UnlockRequest({
-            amounts: amounts,
-            unlockTime: block.timestamp + UNLOCK_PERIOD,
-            isActive: true
-        }));
+        unlockRequests[msg.sender].push(
+            UnlockRequest({
+                amounts: amounts,
+                unlockTime: block.timestamp + UNLOCK_PERIOD,
+                isActive: true
+            })
+        );
 
-        emit WithdrawRequested(msg.sender, amounts, block.timestamp + UNLOCK_PERIOD);
+        emit WithdrawRequested(
+            msg.sender,
+            amounts,
+            block.timestamp + UNLOCK_PERIOD
+        );
     }
 
     function executeWithdraw() external nonReentrant whenNotPaused {
-        require(unlockRequests[msg.sender].length > 0, "No pending withdrawals");
-        UnlockRequest storage request = unlockRequests[msg.sender][unlockRequests[msg.sender].length - 1];
+        require(
+            unlockRequests[msg.sender].length > 0,
+            "No pending withdrawals"
+        );
+        UnlockRequest storage request = unlockRequests[msg.sender][
+            unlockRequests[msg.sender].length - 1
+        ];
 
         require(request.isActive, "Request not active");
         require(block.timestamp >= request.unlockTime, "Still locked");
@@ -323,9 +399,12 @@ contract InsurancePool is IInsurancePool {
     function deductFees() external returns (uint256) {
         Coverage storage coverage = activeCoverages[msg.sender];
         require(coverage.isActive, "No active coverage");
-        require(block.timestamp > coverage.lastFeeDeduction + 1 days, "Too soon");
+        require(
+            block.timestamp > coverage.lastFeeDeduction + 1 days,
+            "Too soon"
+        );
 
-        uint256 dailyFee = calculatePremium(coverage.amount) / 365;
+        uint256 dailyFee = _calculatePremium(coverage.amount) / 365;
         require(coverage.remainingDeposit >= dailyFee, "Insufficient deposit");
 
         coverage.remainingDeposit -= dailyFee;
@@ -358,9 +437,38 @@ contract InsurancePool is IInsurancePool {
         for (uint256 i = 0; i < 3; i++) {
             RiskType bucket = RiskType(i);
             RiskBucket storage riskBucket = riskBuckets[bucket];
-            riskBucket.utilizationRate = ((riskBucket.activeCoverage + riskBucket.pendingPayouts) * BASIS_POINTS) / riskBucket.allocatedLiquidity;
+            riskBucket.utilizationRate =
+                ((riskBucket.activeCoverage + riskBucket.pendingPayouts) *
+                    BASIS_POINTS) /
+                riskBucket.allocatedLiquidity;
             emit UtilizationUpdated(bucket, riskBucket.utilizationRate);
         }
+    }
+
+    // Payout Management functions
+    function initiatePayout(
+        address buyer,
+        uint256 amount,
+        uint256 unlockTime,
+        RiskType riskType
+    ) external {
+        delayedPayouts[buyer] = DelayedPayout({
+            amount: amount,
+            unlockTime: unlockTime,
+            firstPhaseClaimed: false,
+            secondPhaseClaimed: false,
+            triggerType: riskType
+        });
+    }
+
+    function updatePayoutState(
+        address buyer,
+        bool firstPhaseClaimed,
+        bool secondPhaseClaimed
+    ) external {
+        DelayedPayout storage payout = delayedPayouts[buyer];
+        payout.firstPhaseClaimed = firstPhaseClaimed;
+        payout.secondPhaseClaimed = secondPhaseClaimed;
     }
 
     // Admin functions
