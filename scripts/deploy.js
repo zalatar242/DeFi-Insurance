@@ -69,10 +69,10 @@ async function main() {
   await oracle.setInsurancePool(pool.address);
   console.log("InsurancePool address set in InsuranceOracle");
 
-  // Add stablecoin to InsuranceOracle
-  const STABLECOIN_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"; // USDC
-  await oracle.addStablecoin(STABLECOIN_ADDRESS, stablecoinFeed.address, "USDC");
-  console.log("Stablecoin added to InsuranceOracle");
+  // Add RLUSD to InsuranceOracle
+  const RLUSD_ADDRESS = "0x866386C7f4F2A5f46C5F4566D011dbe3e8679BE4"; // RLUSD testnet
+  await oracle.addStablecoin(RLUSD_ADDRESS, stablecoinFeed.address, "RLUSD");
+  console.log("RLUSD added to InsuranceOracle");
 
   // Set utilization feed in InsuranceOracle
   await oracle.setUtilizationFeed(utilizationFeed.address);
