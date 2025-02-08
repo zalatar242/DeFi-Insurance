@@ -1,1 +1,1 @@
-# DeFi-Insurance
+# DeFi-Insurance via CoverMax

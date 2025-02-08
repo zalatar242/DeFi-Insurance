@@ -1,4 +1,4 @@
-# DeFi Insurance Protocol Specification
+# DeFi Insurance Protocol (MaxCover Protocol) Specification
 
 ## Overview
 
@@ -60,7 +60,8 @@ The protocol has three risk buckets that determine premium pricing:
   - Smart Contract Risk: 40%
 
 #### Utilization-Based Premium Multipliers
-- Base formula for each bucket: Base Rate * (1 + Utilization Multiplier)
+
+- Base formula for each bucket: Base Rate \* (1 + Utilization Multiplier)
 - Utilization calculation per bucket:
   - Utilization = (Total Active Coverage + Pending Payouts) / Total Allocated Liquidity
   - Includes both active coverage amounts and pending/delayed payouts
@@ -69,19 +70,21 @@ The protocol has three risk buckets that determine premium pricing:
   - For utilization ≤ 50%: Multiplier = Utilization%
   - For utilization > 50%: Multiplier = Utilization% ^ 2
 - Example:
-  - At 30% utilization: 2% * (1 + 0.3) = 2.6% annual rate
-  - At 80% utilization: 2% * (1 + 0.64) = 3.28% annual rate
+  - At 30% utilization: 2% \* (1 + 0.3) = 2.6% annual rate
+  - At 80% utilization: 2% \* (1 + 0.64) = 3.28% annual rate
 - Maximum premium cap at 6% annual rate per bucket
 
 #### Total Premium Example
+
 Given:
+
 - Stablecoin Bucket: 80% utilized = 3.28% adjusted rate
 - Liquidity Bucket: 30% utilized = 2.6% adjusted rate
 - Smart Contract Bucket: 50% utilized = 3% adjusted rate
 
-Total Premium = (3.28% * 0.4) + (2.6% * 0.2) + (3% * 0.4)
-              = 1.312% + 0.52% + 1.2%
-              = 3.032% annual rate
+Total Premium = (3.28% _ 0.4) + (2.6% _ 0.2) + (3% \* 0.4)
+= 1.312% + 0.52% + 1.2%
+= 3.032% annual rate
 
 ### Liquidity Management
 

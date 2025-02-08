@@ -1,5 +1,5 @@
 {
-  "name": "defi_insurance",
+  "name": "CoverMax",
   "version": "1.0.0",
   "description": "DeFi insurance protocol with security deposits and dynamic liquidity buffers",
   "main": "index.js",
