@@ -1,0 +1,325 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import {IInsuranceOracle} from "../interfaces/IInsuranceOracle.sol";
+import {IInsurancePool} from "../interfaces/IInsurancePool.sol";
+
+contract InsuranceOracle is IInsuranceOracle {
+    // Access control
+    address public owner;
+    bool public paused;
+
+    // Constants
+    // Note on timestamp usage: block.timestamp is used for tracking durations in hours.
+    // While miners can manipulate timestamps slightly (by a few seconds),
+    // this won't significantly impact the system since:
+    // 1. We use hours-long durations (minimum 1 hour for triggers)
+    // 2. Price feeds from Chainlink provide their own timestamps
+    // 3. The system is designed to be resilient to small timing variations
+
+    uint256 public constant STABLECOIN_DEVIATION_THRESHOLD = 5e6;    // 5%
+    uint256 public constant UTILIZATION_THRESHOLD = 95e6;            // 95%
+    uint256 public constant MINIMUM_TRIGGER_DURATION = 1 hours;      // 1 hour for stablecoins
+    uint256 public constant PRICE_PRECISION = 1e8;                   // 1e8 for Chainlink
+
+    // State variables
+    address public insurancePool;
+    mapping(IInsurancePool.RiskType => RiskState) public riskStates;
+    mapping(address => StablecoinState) public stablecoinStates;
+    mapping(bytes32 => bool) public knownExploits;
+
+    // Track active elements
+    address[] public supportedStablecoins;
+    bytes32[] public exploitSignatures;
+    address public utilizationFeed;
+
+    // Events
+    event StablecoinAdded(address indexed token, address indexed priceFeed, string symbol);
+    event StablecoinRemoved(address indexed token);
+
+    // Constructor
+    constructor() {
+        owner = msg.sender;
+    }
+
+    // Modifiers
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+
+    modifier whenNotPaused() {
+        require(!paused, "Contract paused");
+        _;
+    }
+
+    // Core functions
+    function checkRiskCondition(IInsurancePool.RiskType riskType) external whenNotPaused returns (bool) {
+        if (riskType == IInsurancePool.RiskType.STABLECOIN_DEPEG) {
+            return _checkStablecoinDepeg();
+        } else if (riskType == IInsurancePool.RiskType.LIQUIDITY_SHORTAGE) {
+            return _checkLiquidityShortage();
+        } else {
+            return _checkSmartContractExploit();
+        }
+    }
+
+    function updateStablecoinPrice(address token) external whenNotPaused returns (uint256) {
+        StablecoinState storage state = stablecoinStates[token];
+        require(state.isSupported, "Token not supported");
+        require(state.chainlinkFeed != address(0), "No price feed");
+
+        // Update price using Chainlink
+        (uint256 price, uint256 timestamp) = _getChainlinkPrice(state.chainlinkFeed);
+        state.price = price;
+        state.lastPriceUpdate = timestamp;
+
+        emit StablecoinPriceUpdated(token, price, timestamp);
+        return price;
+    }
+
+    function updateProtocolUtilization() external whenNotPaused returns (uint256) {
+        require(utilizationFeed != address(0), "No utilization feed");
+
+        (uint256 utilization, uint256 timestamp) = _getChainlinkPrice(utilizationFeed);
+        emit ProtocolUtilizationUpdated(utilization, timestamp);
+        return utilization;
+    }
+
+    function checkSmartContractSafety() external whenNotPaused returns (bool) {
+        return exploitSignatures.length == 0;
+    }
+
+    // View functions
+    function getRiskState(IInsurancePool.RiskType riskType) external view returns (RiskState memory) {
+        return riskStates[riskType];
+    }
+
+    function getStablecoinState(address token) external view returns (StablecoinState memory) {
+        return stablecoinStates[token];
+    }
+
+    function getProtocolUtilization() external view returns (uint256) {
+        require(utilizationFeed != address(0), "No utilization feed");
+        (uint256 utilization,) = _getChainlinkPrice(utilizationFeed);
+        return utilization;
+    }
+
+    function getExploitSignatures() external view returns (bytes32[] memory) {
+        return exploitSignatures;
+    }
+
+    function getSupportedStablecoins() external view returns (address[] memory) {
+        return supportedStablecoins;
+    }
+
+    function isRiskConditionMet(IInsurancePool.RiskType riskType) external view returns (bool) {
+        RiskState memory state = riskStates[riskType];
+        if (!state.isTriggered) {
+            return false;
+        }
+
+        if (_getTimeNow() < state.triggerStartTime + _getMinimumDuration()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    // Admin functions
+    function addStablecoin(
+        address token,
+        address chainlinkFeed,
+        string calldata symbol
+    ) external onlyOwner {
+        require(token != address(0), "Invalid token");
+        require(chainlinkFeed != address(0), "Invalid feed");
+        require(!stablecoinStates[token].isSupported, "Already supported");
+
+        StablecoinState storage state = stablecoinStates[token];
+        state.isSupported = true;
+        state.chainlinkFeed = chainlinkFeed;
+
+        // Initial price check
+        (uint256 price, uint256 timestamp) = _getChainlinkPrice(chainlinkFeed);
+        state.price = price;
+        state.lastPriceUpdate = timestamp;
+
+        // Add to active list
+        supportedStablecoins.push(token);
+
+        emit StablecoinAdded(token, chainlinkFeed, symbol);
+    }
+
+    function removeStablecoin(address token) external onlyOwner {
+        require(stablecoinStates[token].isSupported, "Not supported");
+
+        delete stablecoinStates[token];
+
+        // Remove from active list
+        for (uint i = 0; i < supportedStablecoins.length; i++) {
+            if (supportedStablecoins[i] == token) {
+                supportedStablecoins[i] = supportedStablecoins[supportedStablecoins.length - 1];
+                supportedStablecoins.pop();
+                break;
+            }
+        }
+
+        emit StablecoinRemoved(token);
+    }
+
+    function addExploitSignature(
+        bytes32 signature,
+        string calldata description
+    ) external onlyOwner {
+        require(!knownExploits[signature], "Signature exists");
+
+        knownExploits[signature] = true;
+        exploitSignatures.push(signature);
+
+        // Update smart contract risk state
+        uint256 currentTime = _getTimeNow();
+        RiskState storage state = riskStates[IInsurancePool.RiskType.SMART_CONTRACT];
+
+        if (!state.isTriggered) {
+            state.isTriggered = true;
+            state.triggerStartTime = currentTime;
+            state.details = signature;
+            emit RiskConditionTriggered(
+                IInsurancePool.RiskType.SMART_CONTRACT,
+                currentTime,
+                signature
+            );
+        }
+
+        emit ExploitSignatureAdded(signature, description);
+    }
+
+    function removeExploitSignature(bytes32 signature) external onlyOwner {
+        require(knownExploits[signature], "Signature not found");
+
+        knownExploits[signature] = false;
+
+        // Remove from active list
+        for (uint i = 0; i < exploitSignatures.length; i++) {
+            if (exploitSignatures[i] == signature) {
+                exploitSignatures[i] = exploitSignatures[exploitSignatures.length - 1];
+                exploitSignatures.pop();
+                break;
+            }
+        }
+
+        // Update smart contract risk state if no more exploits
+        if (exploitSignatures.length == 0) {
+            RiskState storage state = riskStates[IInsurancePool.RiskType.SMART_CONTRACT];
+            state.isTriggered = false;
+            emit RiskConditionResolved(IInsurancePool.RiskType.SMART_CONTRACT, _getTimeNow());
+        }
+    }
+
+    function setUtilizationFeed(address feed) external onlyOwner {
+        require(feed != address(0), "Invalid feed");
+        utilizationFeed = feed;
+    }
+
+    function setInsurancePool(address pool) external onlyOwner {
+        require(pool != address(0), "Invalid pool");
+        insurancePool = pool;
+    }
+
+    // Internal functions
+    function _checkStablecoinDepeg() internal returns (bool) {
+        bool triggered = false;
+        uint256 currentTime = _getTimeNow();
+        RiskState storage state = riskStates[IInsurancePool.RiskType.STABLECOIN_DEPEG];
+        address triggeredToken;
+
+        // Check all supported stablecoins
+        for (uint i = 0; i < supportedStablecoins.length; i++) {
+            address token = supportedStablecoins[i];
+            StablecoinState storage stable = stablecoinStates[token];
+
+            (uint256 price,) = _getChainlinkPrice(stable.chainlinkFeed);
+            uint256 deviation = _calculateDeviation(price, PRICE_PRECISION);
+
+            if (deviation > STABLECOIN_DEVIATION_THRESHOLD) {
+                triggered = true;
+                triggeredToken = token;
+                break;
+            }
+        }
+
+        if (triggered && !state.isTriggered) {
+            state.isTriggered = true;
+            state.triggerStartTime = currentTime;
+            state.details = bytes32(uint256(uint160(triggeredToken))); // Store which stablecoin triggered
+            emit RiskConditionTriggered(
+                IInsurancePool.RiskType.STABLECOIN_DEPEG,
+                currentTime,
+                state.details
+            );
+        } else if (!triggered && state.isTriggered) {
+            state.isTriggered = false;
+            emit RiskConditionResolved(IInsurancePool.RiskType.STABLECOIN_DEPEG, currentTime);
+        }
+
+        state.lastUpdateTime = currentTime;
+        return triggered;
+    }
+
+    function _checkLiquidityShortage() internal returns (bool) {
+        bool triggered = false;
+        uint256 currentTime = _getTimeNow();
+        RiskState storage state = riskStates[IInsurancePool.RiskType.LIQUIDITY_SHORTAGE];
+
+        if (utilizationFeed != address(0)) {
+            (uint256 utilization,) = _getChainlinkPrice(utilizationFeed);
+            triggered = utilization >= UTILIZATION_THRESHOLD;
+
+            if (triggered && !state.isTriggered) {
+                state.isTriggered = true;
+                state.triggerStartTime = currentTime;
+                state.details = bytes32(utilization);
+                emit RiskConditionTriggered(
+                    IInsurancePool.RiskType.LIQUIDITY_SHORTAGE,
+                    currentTime,
+                    state.details
+                );
+            } else if (!triggered && state.isTriggered) {
+                state.isTriggered = false;
+                emit RiskConditionResolved(IInsurancePool.RiskType.LIQUIDITY_SHORTAGE, currentTime);
+            }
+        }
+
+        state.lastUpdateTime = currentTime;
+        return triggered;
+    }
+
+    function _checkSmartContractExploit() internal view returns (bool) {
+        return exploitSignatures.length > 0;
+    }
+
+    // Internal timestamp functions - can be overridden with a more secure time oracle in production
+    function _getTimeNow() internal view virtual returns (uint256) {
+        // Mock implementation - could use a more secure time source in production
+        return block.timestamp;
+    }
+
+    function _getMinimumDuration() internal pure virtual returns (uint256) {
+        return MINIMUM_TRIGGER_DURATION;
+    }
+
+    function _getChainlinkPrice(address feed) internal view returns (uint256, uint256) {
+        // Mock implementation - would use actual Chainlink AggregatorV3Interface in production
+        // In production, use the timestamp from Chainlink instead of block.timestamp
+        return (PRICE_PRECISION, _getTimeNow());
+    }
+
+    function _calculateDeviation(uint256 price, uint256 target) internal pure returns (uint256) {
+        if (price > target) {
+            return ((price - target) * 1e8) / target;
+        } else {
+            return ((target - price) * 1e8) / target;
+        }
+    }
+}
