@@ -104,11 +104,19 @@ const ProvideProtection = () => {
       // Convert amount to wei
       const amountInWei = ethers.parseEther(amounts[riskType]);
 
-      // Call addLiquidity with allocations array
-      const tx = await insurancePool.addLiquidity(
-        allocations,
-        { value: amountInWei }
+      // Get RLUSD contract instance
+      const rlusd = new ethers.Contract(
+        contracts.RLUSD.address,
+        contracts.RLUSD.abi,
+        signer
       );
+
+      // Approve RLUSD spending
+      const approveTx = await rlusd.approve(contracts.InsurancePool.address, amountInWei);
+      await approveTx.wait();
+
+      // Call addLiquidity with allocations array
+      const tx = await insurancePool.addLiquidity(allocations, amountInWei);
       await tx.wait();
 
       // Clear input and refresh data
@@ -252,7 +260,7 @@ const ProvideProtection = () => {
               </InfoRow>
 
               <InputGroup>
-                <Label>Amount to Provide (ETH)</Label>
+                <Label>Amount to Provide (RLUSD)</Label>
                 <AmountInput
                   type="number"
                   min="0"

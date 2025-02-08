@@ -42,7 +42,6 @@ contract InsurancePool is IInsurancePool {
     uint256 public constant SECURITY_DEPOSIT_RATIO = 2000; // 20%
     uint256 public constant BASE_PREMIUM_RATE = 200; // 2% annual (in basis points)
     uint256 public constant MAX_COVERAGE = 10_000_000e18; // $10M in wei
-    uint256 public constant MIN_COVERAGE = 1_000e18; // $1K in wei
     uint256 public constant INITIAL_FEE_RATE = 50; // 0.5% in basis points
 
     // Time delays
@@ -235,7 +234,6 @@ contract InsurancePool is IInsurancePool {
     function purchaseCoverage(
         uint256 amount
     ) external nonReentrant whenNotPaused {
-        require(amount >= MIN_COVERAGE, "Below minimum coverage");
         require(amount <= MAX_COVERAGE, "Exceeds maximum coverage");
         require(
             !activeCoverages[msg.sender].isActive,
@@ -244,7 +242,10 @@ contract InsurancePool is IInsurancePool {
 
         // Check if coverage exceeds 80% of total liquidity
         uint256 maxCoverage = (totalLiquidity * 80) / 100;
-        require(amount <= maxCoverage, "Coverage exceeds 80% of total liquidity");
+        require(
+            amount <= maxCoverage,
+            "Coverage exceeds 80% of total liquidity"
+        );
 
         uint256 requiredDeposit = _calculateRequiredDeposit(amount);
 
@@ -320,7 +321,6 @@ contract InsurancePool is IInsurancePool {
 
         // Verify withdrawal amounts against allocations
         for (uint256 i = 0; i < 2; i++) {
-            RiskType bucket = RiskType(i);
             uint256 maxAmount = (totalLiquidity *
                 providerAlloc.allocations[i]) / BASIS_POINTS;
             require(amounts[i] <= maxAmount, "Exceeds allocation");

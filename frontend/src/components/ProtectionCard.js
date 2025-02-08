@@ -204,8 +204,8 @@ const ProtectionCard = ({
   };
 
   const handlePurchaseProtection = async () => {
-    if (!protectionAmount || isNaN(protectionAmount)) {
-      setError('Please enter a valid amount');
+    if (!protectionAmount || isNaN(protectionAmount) || parseFloat(protectionAmount) <= 0) {
+      setError('Please enter a valid amount greater than 0');
       return;
     }
 
@@ -222,9 +222,19 @@ const ProtectionCard = ({
       const coverageAmount = ethers.parseEther(protectionAmount.toString());
       const deposit = await insurancePool.calculateRequiredDeposit(coverageAmount);
 
-      const tx = await insurancePool.purchaseCoverage(coverageAmount, {
-        value: deposit
-      });
+      // Get RLUSD contract instance
+      const rlusd = new ethers.Contract(
+        contracts.RLUSD.address,
+        contracts.RLUSD.abi,
+        signer
+      );
+
+      // Approve RLUSD spending
+      const approveTx = await rlusd.approve(contracts.InsurancePool.address, deposit);
+      await approveTx.wait();
+
+      // Purchase coverage with RLUSD
+      const tx = await insurancePool.purchaseCoverage(coverageAmount);
       await tx.wait();
 
       setError('');
@@ -252,8 +262,8 @@ const ProtectionCard = ({
         <PriceLabel>Protection Amount (USD)</PriceLabel>
         <Input
           type="number"
-          min="100"
-          step="100"
+          min="0"
+          step="1"
           value={protectionAmount}
           onChange={handleAmountChange}
           placeholder="Enter amount..."
@@ -263,14 +273,14 @@ const ProtectionCard = ({
       {calculatedPremium && (
         <InfoRow>
           <Label>Premium Cost</Label>
-          <Value>${parseFloat(calculatedPremium).toFixed(4)} ETH</Value>
+          <Value>${parseFloat(calculatedPremium).toFixed(4)} RLUSD</Value>
         </InfoRow>
       )}
 
       {requiredDeposit && (
         <InfoRow>
           <Label>Required Deposit</Label>
-          <Value>${parseFloat(requiredDeposit).toFixed(4)} ETH</Value>
+          <Value>${parseFloat(requiredDeposit).toFixed(4)} RLUSD</Value>
         </InfoRow>
       )}
 
@@ -305,7 +315,7 @@ const ProtectionCard = ({
         <Label>Protection Balance</Label>
         <Value>
           <AccountBalanceWallet style={{ fontSize: 16, marginRight: 4, verticalAlign: 'middle' }} />
-          {currentBalance} USDC
+          {currentBalance} RLUSD
         </Value>
       </InfoRow>
 
