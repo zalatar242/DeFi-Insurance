@@ -160,7 +160,8 @@ const ProtectionCard = ({
   costPerHundred,
   availableProtection,
   maxProtection,
-  currentBalance
+  currentBalance,
+  onUpdate
 }) => {
   const [protectionAmount, setProtectionAmount] = useState('100');
   const [error, setError] = useState('');
@@ -238,6 +239,10 @@ const ProtectionCard = ({
       await tx.wait();
 
       setError('');
+      // Reload data after successful purchase
+      if (onUpdate) {
+        onUpdate();
+      }
     } catch (err) {
       console.error("Error purchasing protection:", err);
       setError(err.message || 'Error purchasing protection');
@@ -296,7 +301,7 @@ const ProtectionCard = ({
       <Divider />
 
       <InfoRow>
-        <Label>Available</Label>
+        <Label>Available for Coverage</Label>
         <Value>${availableProtection.toLocaleString()}</Value>
       </InfoRow>
 
@@ -305,7 +310,7 @@ const ProtectionCard = ({
       </ProgressBar>
 
       <InfoRow>
-        <Label>Max</Label>
+        <Label>Maximum Liquidity</Label>
         <Value>${maxProtection.toLocaleString()}</Value>
       </InfoRow>
 

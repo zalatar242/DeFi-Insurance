@@ -89,7 +89,7 @@ async function main() {
 
   // Set up initial liquidity
   const initialLiquidity = parseEther("10"); // 10 RLUSD initial liquidity
-  const allocations = [7000, 3000]; // 70% STABLECOIN_DEPEG, 30% SMART_CONTRACT risk
+  const allocations = [5000, 5000]; // 50% STABLECOIN_DEPEG, 50% SMART_CONTRACT risk
 
   // Since we're using mock RLUSD, we already have enough tokens
   const rlusdBalance = await rlusd.balanceOf(deployerAddress);

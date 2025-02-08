@@ -30,50 +30,50 @@ const GetProtection = () => {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
+  const loadData = async () => {
+    if (!window.ethereum) {
+      setError("Please install MetaMask to use this feature");
+      return;
+    }
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const insurancePool = new ethers.Contract(
+        contracts.InsurancePool.address,
+        contracts.InsurancePool.abi,
+        signer
+      );
+
+      // Calculate base premium for $100 coverage
+      const baseAmount = ethers.parseEther("100");
+      const premium = await insurancePool.calculatePremium(baseAmount);
+
+      // Fetch risk bucket data for stablecoin depeg
+      const depegRiskBucket = await insurancePool.getRiskBucket(0); // STABLECOIN_DEPEG is 0
+
+      // Get user's current coverage if any
+      const userAddress = await signer.getAddress();
+      const coverage = await insurancePool.getCoverage(userAddress);
+
+      setStablecoinProtection({
+        title: "RLUSD Protection",
+        risks: ["Stablecoin Depegging Risk (50% weight)", "Smart Contract Risk (50% weight)"],
+        costPerHundred: parseFloat(ethers.formatEther(premium)),
+        maxProtection: ethers.formatEther(depegRiskBucket.allocatedLiquidity),
+        availableProtection: (parseFloat(ethers.formatEther(depegRiskBucket.allocatedLiquidity)) * 0.8).toString(),
+        currentBalance: coverage.isActive ? ethers.formatEther(coverage.amount) : 0
+      });
+
+      setError(null);
+    } catch (err) {
+      console.error("Error loading protection data:", err);
+      setError("Error loading protection data. Please make sure you are connected to the correct network.");
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      if (!window.ethereum) {
-        setError("Please install MetaMask to use this feature");
-        return;
-      }
-
-      try {
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-
-        const insurancePool = new ethers.Contract(
-          contracts.InsurancePool.address,
-          contracts.InsurancePool.abi,
-          signer
-        );
-
-        // Calculate base premium for $100 coverage
-        const baseAmount = ethers.parseEther("100");
-        const premium = await insurancePool.calculatePremium(baseAmount);
-
-        // Fetch risk bucket data for stablecoin depeg
-        const depegRiskBucket = await insurancePool.getRiskBucket(0); // STABLECOIN_DEPEG is 0
-
-        // Get user's current coverage if any
-        const userAddress = await signer.getAddress();
-        const coverage = await insurancePool.getCoverage(userAddress);
-
-        setStablecoinProtection({
-          title: "RLUSD Protection",
-          risks: ["Stablecoin Depegging Risk (50% weight)", "Smart Contract Risk (50% weight)"],
-          costPerHundred: parseFloat(ethers.formatEther(premium)),
-          availableProtection: ethers.formatEther(depegRiskBucket.allocatedLiquidity),
-          maxProtection: ethers.formatEther(depegRiskBucket.allocatedLiquidity),
-          currentBalance: coverage.isActive ? ethers.formatEther(coverage.amount) : 0
-        });
-
-        setError(null);
-      } catch (err) {
-        console.error("Error loading protection data:", err);
-        setError("Error loading protection data. Please make sure you are connected to the correct network.");
-      }
-    };
-
     loadData();
   }, []);
 
@@ -128,6 +128,7 @@ const GetProtection = () => {
               availableProtection={parseFloat(protection.availableProtection)}
               maxProtection={parseFloat(protection.maxProtection)}
               currentBalance={protection.currentBalance}
+              onUpdate={loadData}
             />
           ))}
         </CardsContainer>
