@@ -20,7 +20,7 @@ import {
 
 const GetProtection = () => {
   const [stablecoinProtection, setStablecoinProtection] = useState({
-    title: "Stablecoin Protection",
+    title: "USDT Protection",
     risks: ["Stablecoin Depegging Risk (50% weight)", "Smart Contract Risk (50% weight)"],
     costPerHundred: 0.15,
     availableProtection: "2500",

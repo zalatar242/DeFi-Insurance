@@ -42,10 +42,15 @@ async function main() {
   await payoutManager.deployed();
   console.log("PayoutManager deployed to:", payoutManager.address);
 
-  // Deploy InsurancePool with RLUSD address
-  const RLUSD_ADDRESS = "0x866386C7f4F2A5f46C5F4566D011dbe3e8679BE4"; // RLUSD testnet
+  // Deploy mock RLUSD
+  const RLUSDMock = await hre.ethers.getContractFactory("RLUSDMock");
+  const rlusd = await RLUSDMock.deploy();
+  await rlusd.deployed();
+  console.log("RLUSDMock deployed to:", rlusd.address);
+
+  // Deploy InsurancePool with mock RLUSD
   const InsurancePool = await hre.ethers.getContractFactory("InsurancePool");
-  const pool = await InsurancePool.deploy(RLUSD_ADDRESS);
+  const pool = await InsurancePool.deploy(rlusd.address);
   await pool.deployed();
   console.log("InsurancePool deployed to:", pool.address);
 
@@ -71,7 +76,7 @@ async function main() {
   console.log("InsurancePool address set in InsuranceOracle");
 
   // Add RLUSD to InsuranceOracle
-  await oracle.addStablecoin(RLUSD_ADDRESS, stablecoinFeed.address, "RLUSD");
+  await oracle.addStablecoin(rlusd.address, stablecoinFeed.address, "RLUSD");
   console.log("RLUSD added to InsuranceOracle");
 
   // Set utilization feed in InsuranceOracle
@@ -84,16 +89,29 @@ async function main() {
 
   // Set up initial liquidity
   const initialLiquidity = parseEther("10"); // 10 RLUSD initial liquidity
-  const allocations = [5000, 5000]; // 50% STABLECOIN_DEPEG, 50% SMART_CONTRACT
+  const allocations = [7000, 3000]; // 70% STABLECOIN_DEPEG, 30% SMART_CONTRACT risk
 
-  // Get RLUSD contract instance
-  const RLUSD = await hre.ethers.getContractAt("IERC20", RLUSD_ADDRESS);
+  // Since we're using mock RLUSD, we already have enough tokens
+  const rlusdBalance = await rlusd.balanceOf(deployerAddress);
+  console.log("Initial RLUSD Balance:", formatEther(rlusdBalance));
 
   // Approve and add initial liquidity
-  await RLUSD.approve(pool.address, initialLiquidity);
+  await rlusd.approve(pool.address, initialLiquidity);
   await pool.addLiquidity(allocations, initialLiquidity);
   console.log("Added initial liquidity:", formatEther(initialLiquidity), "RLUSD");
+const remainingBalance = await rlusd.balanceOf(deployerAddress);
+console.log("Remaining RLUSD Balance:", formatEther(remainingBalance));
 
+// Transfer 100 RLUSD to a different address
+const recipientAddress = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"; // Different test account
+const transferAmount = parseEther("100");
+await rlusd.transfer(recipientAddress, transferAmount);
+console.log("Transferred 100 RLUSD to:", recipientAddress);
+
+const recipientBalance = await rlusd.balanceOf(recipientAddress);
+console.log("Recipient RLUSD Balance:", formatEther(recipientBalance));
+
+// Save contract addresses and ABIs to a JSON file
   // Save contract addresses and ABIs to a JSON file
   const fs = require('fs');
   const contracts = {
@@ -123,3 +141,4 @@ main()
     console.error(error);
     process.exit(1);
   });
+

@@ -14,10 +14,18 @@ module.exports = {
   },
   networks: {
     hardhat: {
-      chainId: 31337
+      chainId: 31337,
+      gas: 12000000,
+      blockGasLimit: 12000000,
+      allowUnlimitedContractSize: true,
+      gasPrice: 1000000000 // 1 gwei
     },
     localhost: {
-      url: "http://127.0.0.1:8545"
+      url: "http://127.0.0.1:8545",
+      chainId: 31337,
+      gas: 12000000,
+      blockGasLimit: 12000000,
+      gasPrice: 1000000000 // 1 gwei
     },
     sepolia: {
       url: process.env.SEPOLIA_URL || "",
