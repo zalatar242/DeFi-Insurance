@@ -7,7 +7,7 @@ import {IInsuranceOracle} from "./IInsuranceOracle.sol";
 interface IPayoutManager {
     // Events
     event PayoutTriggered(
-        IInsurancePool.RiskType indexed riskType,
+        IInsurancePool.RiskType indexed riskType, // Will always be STABLECOIN_DEPEG
         uint256 timestamp,
         uint256 totalCoverage
     );
@@ -33,14 +33,14 @@ interface IPayoutManager {
     // Structs
     struct PayoutState {
         bool isActive;                    // Whether a payout event is currently active
-        IInsurancePool.RiskType riskType; // Which risk triggered the payout
+        IInsurancePool.RiskType riskType; // Will always be STABLECOIN_DEPEG
         uint256 triggerTime;              // When the payout was triggered
         uint256 totalCoverage;            // Total coverage amount affected
         bool isFirstPhaseComplete;        // Whether first phase payments are done
         bool isSecondPhaseComplete;       // Whether second phase payments are done
     }
 
-    // Core functions
+    // Core functions - All payouts are for stablecoin depeg risk
     function checkAndTriggerPayout() external returns (bool);
     function processFirstPhasePayout(address buyer) external returns (uint256);
     function processSecondPhasePayout(address buyer) external returns (uint256);

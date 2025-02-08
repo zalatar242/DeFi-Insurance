@@ -83,7 +83,7 @@ contract PayoutManager is IPayoutManager {
 
     // Internal time functions - can be overridden with a more secure time oracle in production
     function _getTimeNow() internal view virtual returns (uint256) {
-        return block.timestamp; // Mock implementation - could use a more secure time source in production
+        return block.timestamp;
     }
 
     // Core functions
@@ -92,34 +92,26 @@ contract PayoutManager is IPayoutManager {
         require(address(insurancePool) != address(0), "Pool not set");
         require(!currentPayoutState.isActive, "Payout already active");
 
-        // Check each risk type for trigger conditions
-        IInsurancePool.RiskType triggerType;
-        bool found = false;
+        IInsurancePool.RiskType riskType = IInsurancePool.RiskType.STABLECOIN_DEPEG;
+        require(
+            oracle.checkRiskCondition(riskType) && oracle.isRiskConditionMet(riskType),
+            "Risk condition not met"
+        );
 
-        for (uint i = 0; i < 2; i++) {
-            triggerType = IInsurancePool.RiskType(i);
-            if (oracle.checkRiskCondition(triggerType) && oracle.isRiskConditionMet(triggerType)) {
-                found = true;
-                break;
-            }
-        }
-
-        require(found, "No trigger conditions met");
-
-        uint256 totalCoverage = calculateTotalAffectedCoverage(triggerType);
+        uint256 totalCoverage = calculateTotalAffectedCoverage(riskType);
         require(totalCoverage > 0, "No affected coverage");
 
         uint256 currentTime = _getTimeNow();
         currentPayoutState = PayoutState({
             isActive: true,
-            riskType: triggerType,
+            riskType: riskType,
             triggerTime: currentTime,
             totalCoverage: totalCoverage,
             isFirstPhaseComplete: false,
             isSecondPhaseComplete: false
         });
 
-        emit PayoutTriggered(triggerType, currentTime, totalCoverage);
+        emit PayoutTriggered(riskType, currentTime, totalCoverage);
         return true;
     }
 
@@ -138,7 +130,7 @@ contract PayoutManager is IPayoutManager {
             buyer,
             amount,
             currentTime + delay,
-            currentPayoutState.riskType
+            IInsurancePool.RiskType.STABLECOIN_DEPEG
         );
 
         // Mark first phase as complete in insurance pool
@@ -173,15 +165,7 @@ contract PayoutManager is IPayoutManager {
             return false;
         }
 
-        // Check all risk types for trigger conditions
-        for (uint i = 0; i < 2; i++) {
-            IInsurancePool.RiskType riskType = IInsurancePool.RiskType(i);
-            if (oracle.isRiskConditionMet(riskType)) {
-                return true;
-            }
-        }
-
-        return false;
+        return oracle.isRiskConditionMet(IInsurancePool.RiskType.STABLECOIN_DEPEG);
     }
 
     // View functions
@@ -234,17 +218,20 @@ contract PayoutManager is IPayoutManager {
             return 0;
         }
 
-        // Calculate affected portion based on risk type weights
-        uint256 weight = insurancePool.getBucketWeight(currentPayoutState.riskType);
-        return (coverage.amount * weight) / BASIS_POINTS;
+        return coverage.amount; // Full amount as we're using single risk bucket
     }
 
-    function getPayoutRiskType() external view returns (IInsurancePool.RiskType) {
-        return currentPayoutState.riskType;
+    function getPayoutRiskType() external pure returns (IInsurancePool.RiskType) {
+        return IInsurancePool.RiskType.STABLECOIN_DEPEG;
     }
 
     // Internal functions
     function calculateTotalAffectedCoverage(IInsurancePool.RiskType riskType) internal view returns (uint256) {
+        require(
+            riskType == IInsurancePool.RiskType.STABLECOIN_DEPEG,
+            "Invalid risk type"
+        );
+
         IInsurancePool.RiskBucket memory bucket = insurancePool.getRiskBucket(riskType);
         uint256 totalLiquidity = insurancePool.getTotalLiquidity();
 

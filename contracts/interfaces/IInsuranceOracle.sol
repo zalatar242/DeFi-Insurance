@@ -9,7 +9,7 @@ interface IInsuranceOracle {
         bool isTriggered; // Whether risk condition is currently triggered
         uint256 triggerStartTime; // When the risk condition was first detected
         uint256 lastUpdateTime; // Last time the risk was checked
-        bytes32 details; // Additional details about the trigger
+        bytes32 details; // Additional details about the trigger (stablecoin address)
     }
 
     struct StablecoinState {
@@ -37,16 +37,12 @@ interface IInsuranceOracle {
         uint256 timestamp
     );
 
-    event ExploitSignatureAdded(bytes32 indexed signature, string description);
-
     // Core functions
     function checkRiskCondition(
         IInsurancePool.RiskType riskType
     ) external returns (bool);
 
     function updateStablecoinPrice(address token) external returns (uint256);
-
-    function checkSmartContractSafety() external returns (bool);
 
     // View functions
     function getRiskState(
@@ -57,7 +53,7 @@ interface IInsuranceOracle {
         address token
     ) external view returns (StablecoinState memory);
 
-    function getExploitSignatures() external view returns (bytes32[] memory);
+    function getSupportedStablecoins() external view returns (address[] memory);
 
     function isRiskConditionMet(
         IInsurancePool.RiskType riskType
@@ -71,13 +67,6 @@ interface IInsuranceOracle {
     ) external;
 
     function removeStablecoin(address token) external;
-
-    function addExploitSignature(
-        bytes32 signature,
-        string calldata description
-    ) external;
-
-    function removeExploitSignature(bytes32 signature) external;
 
     function setUtilizationFeed(address feed) external;
 

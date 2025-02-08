@@ -2,10 +2,9 @@
 pragma solidity ^0.8.0;
 
 interface IInsurancePool {
-    // Risk Types
+    // Risk Types (Single risk type for simplified design)
     enum RiskType {
-        STABLECOIN_DEPEG,
-        SMART_CONTRACT
+        STABLECOIN_DEPEG // Only supporting stablecoin depeg risk
     }
 
     // Structs
@@ -23,11 +22,7 @@ interface IInsurancePool {
         uint256 allocatedLiquidity; // LP funds allocated to this bucket
         uint256 activeCoverage; // Total active coverage amount
         uint256 pendingPayouts; // Pending/delayed payouts
-        uint256 utilizationRate; // Current utilization rate (scaled by 1e18)
-    }
-
-    struct BucketAllocation {
-        uint256[2] allocations; // Array of allocation percentages (must sum to 100)
+        uint256 utilizationRate; // Current utilization rate (scaled by BASIS_POINTS)
     }
 
     struct DelayedPayout {
@@ -35,7 +30,7 @@ interface IInsurancePool {
         uint256 unlockTime; // When second phase can be claimed
         bool firstPhaseClaimed; // Whether first 50% was claimed
         bool secondPhaseClaimed; // Whether second 50% was claimed
-        RiskType triggerType; // Which risk type triggered the payout
+        RiskType triggerType; // Will always be STABLECOIN_DEPEG
     }
 
     // Events
@@ -55,15 +50,18 @@ interface IInsurancePool {
     event PayoutCompleted(address indexed buyer, uint256 amount);
     event LiquidityAdded(
         address indexed provider,
-        uint256 amount,
-        uint256[2] allocations
+        uint256 amount
     );
     event LiquidityWithdrawn(
         address indexed provider,
-        uint256 amount,
-        uint256[2] allocations
+        uint256 amount
     );
     event UtilizationUpdated(RiskType indexed riskType, uint256 newRate);
+    event WithdrawRequested(
+        address indexed provider,
+        uint256 amount,
+        uint256 unlockTime
+    );
 
     // View functions
     function getCoverage(address buyer) external view returns (Coverage memory);
@@ -71,10 +69,6 @@ interface IInsurancePool {
     function getRiskBucket(
         RiskType bucket
     ) external view returns (RiskBucket memory);
-
-    function getProviderAllocations(
-        address provider
-    ) external view returns (BucketAllocation memory);
 
     function getTotalLiquidity() external view returns (uint256);
 
@@ -97,17 +91,13 @@ interface IInsurancePool {
     ) external view returns (DelayedPayout memory);
 
     // Liquidity Provider functions
-    function addLiquidity(uint256[2] calldata allocations, uint256 amount) external;
-
-    function requestWithdraw(uint256[2] calldata amounts) external;
-
+    function addLiquidity(uint256 amount) external;
+    function requestWithdraw(uint256 amount) external;
     function executeWithdraw() external;
 
     // Coverage Buyer functions
     function purchaseCoverage(uint256 amount) external;
-
     function claimFirstPhasePayout() external;
-
     function claimSecondPhasePayout() external;
 
     // Premium Collection
@@ -129,10 +119,7 @@ interface IInsurancePool {
 
     // Admin functions
     function setPayoutManager(address manager) external;
-
     function setOracle(address oracle) external;
-
     function pause() external;
-
     function unpause() external;
 }
