@@ -84,7 +84,8 @@ async function main() {
 
   // Then add initial liquidity to the pool
   const initialLiquidity = parseEther("10"); // 10 ETH initial liquidity
-  const allocations = [4000, 2000, 4000]; // 40%, 20%, 40% as per the contract weights
+
+  const allocations = [5000, 5000]; // 50% STABLECOIN_DEPEG, 50% SMART_CONTRACT
   await pool.addLiquidity(allocations, { value: initialLiquidity });
   console.log("Added initial liquidity:", formatEther(initialLiquidity), "ETH");
 
