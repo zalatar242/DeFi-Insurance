@@ -4,12 +4,16 @@ pragma solidity ^0.8.0;
 import {IInsurancePool} from "../interfaces/IInsurancePool.sol";
 import {IInsuranceOracle} from "../interfaces/IInsuranceOracle.sol";
 import {IPayoutManager} from "../interfaces/IPayoutManager.sol";
+import {IERC20} from "../interfaces/IERC20.sol";
 
 contract InsurancePool is IInsurancePool {
     // State variables for access control
     address public owner;
     bool public paused;
     bool private locked;
+
+    // Configurable stablecoin
+    IERC20 public stablecoin;
 
     // Access control modifiers
     modifier onlyOwner() {
@@ -117,10 +121,17 @@ contract InsurancePool is IInsurancePool {
             (365 days * BASIS_POINTS);
     }
 
-    constructor() {
+    constructor(address _stablecoin) {
+        require(_stablecoin != address(0), "Invalid stablecoin address");
         owner = msg.sender;
         paused = true; // Start paused for setup
+        stablecoin = IERC20(_stablecoin);
         _initializeRiskBuckets();
+    }
+
+    function setStablecoin(address _stablecoin) external onlyOwner {
+        require(_stablecoin != address(0), "Invalid stablecoin address");
+        stablecoin = IERC20(_stablecoin);
     }
 
     // Initialization
@@ -223,7 +234,7 @@ contract InsurancePool is IInsurancePool {
     // Core functions
     function purchaseCoverage(
         uint256 amount
-    ) external payable nonReentrant whenNotPaused {
+    ) external nonReentrant whenNotPaused {
         require(amount >= MIN_COVERAGE, "Below minimum coverage");
         require(amount <= MAX_COVERAGE, "Exceeds maximum coverage");
         require(
@@ -236,13 +247,18 @@ contract InsurancePool is IInsurancePool {
         require(amount <= maxCoverage, "Coverage exceeds 80% of total liquidity");
 
         uint256 requiredDeposit = _calculateRequiredDeposit(amount);
-        require(msg.value >= requiredDeposit, "Insufficient security deposit");
 
         // Calculate premium and initial fee
         uint256 premium = _calculatePremium(amount);
         uint256 initialFee = (requiredDeposit * INITIAL_FEE_RATE) /
             BASIS_POINTS;
         uint256 remainingDeposit = requiredDeposit - initialFee;
+
+        // Transfer the required deposit from the user
+        require(
+            stablecoin.transferFrom(msg.sender, address(this), requiredDeposit),
+            "Security deposit transfer failed"
+        );
 
         // Update coverage state
         _updateCoverageState(
@@ -257,20 +273,13 @@ contract InsurancePool is IInsurancePool {
         _updateBucketUtilization();
 
         emit CoveragePurchased(msg.sender, amount, requiredDeposit, premium);
-
-        // Return excess deposit if any
-        if (msg.value > requiredDeposit) {
-            (bool success, ) = msg.sender.call{
-                value: msg.value - requiredDeposit
-            }("");
-            require(success, "Refund failed");
-        }
     }
 
     function addLiquidity(
-        uint256[2] calldata allocations
-    ) external payable nonReentrant whenNotPaused {
-        require(msg.value > 0, "No deposit provided");
+        uint256[2] calldata allocations,
+        uint256 amount
+    ) external nonReentrant whenNotPaused {
+        require(amount > 0, "No deposit provided");
 
         uint256 totalAllocation = 0;
         for (uint256 i = 0; i < allocations.length; i++) {
@@ -278,21 +287,27 @@ contract InsurancePool is IInsurancePool {
         }
         require(totalAllocation == BASIS_POINTS, "Invalid allocations");
 
+        // Transfer tokens from user to contract
+        require(
+            stablecoin.transferFrom(msg.sender, address(this), amount),
+            "Token transfer failed"
+        );
+
         // Update provider allocations
         providerAllocations[msg.sender].allocations = allocations;
 
         // Update bucket liquidity
         for (uint256 i = 0; i < 2; i++) {
             RiskType bucket = RiskType(i);
-            uint256 bucketAmount = (msg.value * allocations[i]) / BASIS_POINTS;
+            uint256 bucketAmount = (amount * allocations[i]) / BASIS_POINTS;
             riskBuckets[bucket].allocatedLiquidity += bucketAmount;
         }
 
         // Update total liquidity
-        totalLiquidity += msg.value;
+        totalLiquidity += amount;
         _updateBucketUtilization();
 
-        emit LiquidityAdded(msg.sender, msg.value, allocations);
+        emit LiquidityAdded(msg.sender, amount, allocations);
     }
 
     function requestWithdraw(
@@ -356,8 +371,10 @@ contract InsurancePool is IInsurancePool {
         totalLiquidity -= totalAmount;
         _updateBucketUtilization();
 
-        (bool success, ) = msg.sender.call{value: totalAmount}("");
-        require(success, "Transfer failed");
+        require(
+            stablecoin.transfer(msg.sender, totalAmount),
+            "Token transfer failed"
+        );
 
         emit LiquidityWithdrawn(msg.sender, totalAmount, request.amounts);
     }
@@ -370,8 +387,10 @@ contract InsurancePool is IInsurancePool {
         uint256 amount = payout.amount / 2; // 50% of total payout
         payout.firstPhaseClaimed = true;
 
-        (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Transfer failed");
+        require(
+            stablecoin.transfer(msg.sender, amount),
+            "Token transfer failed"
+        );
 
         emit PayoutCompleted(msg.sender, amount);
     }
@@ -385,8 +404,10 @@ contract InsurancePool is IInsurancePool {
         uint256 amount = payout.amount / 2; // 50% of total payout
         payout.secondPhaseClaimed = true;
 
-        (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Transfer failed");
+        require(
+            stablecoin.transfer(msg.sender, amount),
+            "Token transfer failed"
+        );
 
         emit PayoutCompleted(msg.sender, amount);
     }

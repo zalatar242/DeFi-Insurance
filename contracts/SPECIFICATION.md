@@ -2,9 +2,17 @@
 
 ## Overview
 
-A simplified DeFi insurance protocol providing protection for stablecoin risks. The protocol automatically triggers payouts based on Chainlink oracle conditions without manual claims processing.
+A simplified DeFi insurance protocol providing protection for stablecoin risks. The protocol operates using a configurable stablecoin as its base currency for all operations (deposits, coverage, rewards). The current implementation uses RLUSD (Reaper Liquidity USD) as the base stablecoin. The protocol automatically triggers payouts based on Chainlink oracle conditions without manual claims processing.
 
 ## Core Components
+
+### Base Currency
+
+The protocol uses a configurable stablecoin as its base currency for all operations:
+- All deposits and coverage amounts are denominated in the base stablecoin
+- Liquidity providers deposit the base stablecoin to provide coverage
+- Premium payments and rewards are paid in the base stablecoin
+- Currently implemented using RLUSD as the base stablecoin
 
 ### Risk Types & Premium Calculation
 
@@ -23,21 +31,22 @@ The protocol has two risk buckets that determine premium pricing:
 ### Coverage Model
 
 1. Insurance Buyers:
-   - Purchase coverage for stablecoin protection
+   - Purchase coverage using the base stablecoin (RLUSD)
    - Total premium calculated based on utilization of both risk buckets
    - Premium = Base Rate * (0.5 * StablecoinBucketMultiplier + 0.5 * SmartContractBucketMultiplier)
-   - Provide security deposit (20% of coverage amount)
+   - Provide security deposit in base stablecoin (20% of coverage amount)
    - Initial coverage fee deducted from deposit to activate coverage
    - Ongoing fees automatically deducted from deposit over time
    - Coverage duration is fixed at 30 days
    - Coverage protects against both monitored risk types
 
 2. Liquidity Providers:
+   - Provide liquidity in base stablecoin (RLUSD)
    - Can provide liquidity to specific risk buckets
    - Specify percentage allocation across buckets
    - Allocations directly affect bucket utilization rates
    - All provided liquidity is pooled together for maximum capital efficiency
-   - Earn fees proportional to their stake across buckets
+   - Earn fees in base stablecoin proportional to their stake across buckets
    - Subject to a 7-day unstaking delay
    - Returns vary based on bucket utilization and risk weights
 
@@ -77,6 +86,7 @@ Total Premium = (3.28% * 0.5) + (3% * 0.5)
 
 ### Liquidity Management
 
+- Providers deposit base stablecoin (RLUSD) for liquidity
 - Providers specify allocation to risk buckets (for premium calculation)
 - Allocations directly impact bucket utilization rates
 - All provided liquidity goes into a single pool for payouts
@@ -107,6 +117,7 @@ Total Premium = (3.28% * 0.5) + (3% * 0.5)
    - 50% paid immediately from shared liquidity pool
    - 50% after 72-hour delay
    - Proportional to coverage amount
+   - All payouts in base stablecoin (RLUSD)
 
 ## Protocol Parameters
 
@@ -115,8 +126,8 @@ Total Premium = (3.28% * 0.5) + (3% * 0.5)
 - Coverage Duration: 30 days
 - Unstaking Delay: 7 days
 - Security Deposit: 20% of coverage amount
-- Maximum Coverage: $10M
-- Minimum Coverage: $1,000
+- Maximum Coverage: $10M (denominated in base stablecoin)
+- Minimum Coverage: $1,000 (denominated in base stablecoin)
 - Initial Coverage Fee: 0.5% of coverage amount
 - Base Premium Rate: 2% annual (adjusted by bucket utilization)
 - Risk Weights: 50/50 split
@@ -130,6 +141,14 @@ Total Premium = (3.28% * 0.5) + (3% * 0.5)
 
 ## Technical Implementation
 
+### Base Stablecoin Configuration
+
+Current Implementation (RLUSD):
+- Testnet Contract: 0x866386C7f4F2A5f46C5F4566D011dbe3e8679BE4
+- Testnet Proxy: 0xe101FB315a64cDa9944E570a7bFfaFE60b994b1D
+- Mainnet Contract: 0xCfd748B9De538c9f5b1805e8db9e1d4671f7F2ec
+- Mainnet Proxy: 0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD
+
 ### Smart Contracts
 
 1. InsurancePool.sol
@@ -137,11 +156,13 @@ Total Premium = (3.28% * 0.5) + (3% * 0.5)
    - Handles fee deductions from security deposits
    - Manages shared liquidity pool
    - Tracks bucket allocations and utilization rates
+   - Configurable base stablecoin integration
 
 2. PayoutManager.sol
    - Manages automated payouts from shared pool
    - Validates oracle triggers
    - Processes claims distribution
+   - Handles stablecoin payouts
 
 3. InsuranceOracle.sol
    - Integrates with Chainlink
@@ -160,17 +181,19 @@ Total Premium = (3.28% * 0.5) + (3% * 0.5)
 1. Coverage:
    - Single stablecoin coverage per purchase
    - Fixed coverage duration
-   - Requires security deposit
+   - Requires security deposit in base stablecoin
 
 2. Liquidity:
    - Maximum pool capacity limits
    - Minimum stake requirements
    - Unstaking delays
+   - All operations in base stablecoin only
 
 3. Payouts:
    - Automated triggers only
    - Two-phase distribution
    - Maximum payout caps
+   - All payouts in base stablecoin
 
 ## Future Considerations
 
@@ -178,3 +201,4 @@ Total Premium = (3.28% * 0.5) + (3% * 0.5)
 - Variable coverage duration
 - Custom risk weights
 - Adjustable fee structures
+- Support for multiple configurable base stablecoins

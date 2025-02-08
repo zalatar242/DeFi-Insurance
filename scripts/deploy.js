@@ -42,9 +42,10 @@ async function main() {
   await payoutManager.deployed();
   console.log("PayoutManager deployed to:", payoutManager.address);
 
-  // Deploy InsurancePool
+  // Deploy InsurancePool with RLUSD address
+  const RLUSD_ADDRESS = "0x866386C7f4F2A5f46C5F4566D011dbe3e8679BE4"; // RLUSD testnet
   const InsurancePool = await hre.ethers.getContractFactory("InsurancePool");
-  const pool = await InsurancePool.deploy();
+  const pool = await InsurancePool.deploy(RLUSD_ADDRESS);
   await pool.deployed();
   console.log("InsurancePool deployed to:", pool.address);
 
@@ -70,7 +71,6 @@ async function main() {
   console.log("InsurancePool address set in InsuranceOracle");
 
   // Add RLUSD to InsuranceOracle
-  const RLUSD_ADDRESS = "0x866386C7f4F2A5f46C5F4566D011dbe3e8679BE4"; // RLUSD testnet
   await oracle.addStablecoin(RLUSD_ADDRESS, stablecoinFeed.address, "RLUSD");
   console.log("RLUSD added to InsuranceOracle");
 
@@ -82,12 +82,17 @@ async function main() {
   await pool.unpause();
   console.log("Insurance pool activated");
 
-  // Then add initial liquidity to the pool
-  const initialLiquidity = parseEther("10"); // 10 ETH initial liquidity
-
+  // Set up initial liquidity
+  const initialLiquidity = parseEther("10"); // 10 RLUSD initial liquidity
   const allocations = [5000, 5000]; // 50% STABLECOIN_DEPEG, 50% SMART_CONTRACT
-  await pool.addLiquidity(allocations, { value: initialLiquidity });
-  console.log("Added initial liquidity:", formatEther(initialLiquidity), "ETH");
+
+  // Get RLUSD contract instance
+  const RLUSD = await hre.ethers.getContractAt("IERC20", RLUSD_ADDRESS);
+
+  // Approve and add initial liquidity
+  await RLUSD.approve(pool.address, initialLiquidity);
+  await pool.addLiquidity(allocations, initialLiquidity);
+  console.log("Added initial liquidity:", formatEther(initialLiquidity), "RLUSD");
 
   // Save contract addresses and ABIs to a JSON file
   const fs = require('fs');

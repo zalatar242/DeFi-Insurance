@@ -97,14 +97,14 @@ interface IInsurancePool {
     ) external view returns (DelayedPayout memory);
 
     // Liquidity Provider functions
-    function addLiquidity(uint256[2] calldata allocations) external payable;
+    function addLiquidity(uint256[2] calldata allocations, uint256 amount) external;
 
     function requestWithdraw(uint256[2] calldata amounts) external;
 
     function executeWithdraw() external;
 
     // Coverage Buyer functions
-    function purchaseCoverage(uint256 amount) external payable;
+    function purchaseCoverage(uint256 amount) external;
 
     function claimFirstPhasePayout() external;
 
