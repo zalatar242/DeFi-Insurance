@@ -61,6 +61,13 @@ async function main() {
   await pool.setOracle(oracle.address);
   console.log("Oracle address set in InsurancePool");
 
+  // Set InsurancePool and Oracle in PayoutManager
+  await payoutManager.setInsurancePool(pool.address);
+  console.log("InsurancePool address set in PayoutManager");
+
+  await payoutManager.setOracle(oracle.address);
+  console.log("Oracle address set in PayoutManager");
+
   // Deploy Chainlink mocks
   const ChainlinkMock = await hre.ethers.getContractFactory("ChainlinkMock");
   const stablecoinFeed = await ChainlinkMock.deploy(1e8, Math.floor(Date.now() / 1000)); // $1.00
