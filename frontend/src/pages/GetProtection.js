@@ -80,12 +80,27 @@ const GetProtection = () => {
       // Get user's current coverage
       const coverage = await insurancePool.getCoverage(userAddress);
 
+      const allocatedLiquidity = parseFloat(ethers.formatEther(depegRiskBucket.allocatedLiquidity));
+      const activeCoverage = parseFloat(ethers.formatEther(depegRiskBucket.activeCoverage));
+
+      // Calculate required deposit for active coverage (20% of coverage amount)
+      const requiredDeposit = activeCoverage * 0.2;
+
+      // Calculate total liquidity including deposits from coverage purchases
+      const totalLiquidity = allocatedLiquidity + requiredDeposit;
+
+      // Calculate available protection:
+      // Initial available (80% of initial liquidity)
+      // - Active coverage
+      // + 80% of required deposits
+      const availableProtection = (allocatedLiquidity * 0.8) - activeCoverage + (requiredDeposit * 0.8);
+
       setStablecoinProtection({
         title: "RLUSD Protection",
         risks: ["Stablecoin Depegging Risk (100% weight)", "Smart Contract Risk (0% weight)"],
         costPerHundred: parseFloat(ethers.formatEther(premium)),
-        maxProtection: ethers.formatEther(totalLiquidity),
-        availableProtection: ethers.formatEther(availableCoverage),
+        maxProtection: totalLiquidity.toString(),
+        availableProtection: availableProtection.toString(),
         currentBalance: coverage.isActive ? ethers.formatEther(coverage.amount) : 0
       });
 

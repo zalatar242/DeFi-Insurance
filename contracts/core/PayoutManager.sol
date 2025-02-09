@@ -20,11 +20,11 @@ contract PayoutManager is IPayoutManager {
     }
 
     function _secondPhaseDelay() internal pure returns (uint256) {
-        return 72 hours;
+        return 1 seconds; // Reduced for demo purposes
     }
 
     function _triggerConfirmationPeriod() internal pure returns (uint256) {
-        return 24 hours;
+        return 1 seconds;
     }
 
     function _maxPayoutRatio() internal pure returns (uint256) {
@@ -72,13 +72,16 @@ contract PayoutManager is IPayoutManager {
     }
 
     // Additional events
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
     event InsurancePoolSet(address indexed newPool);
     event OracleSet(address indexed newOracle);
 
     constructor() {
         owner = msg.sender;
-        paused = true; // Start paused for setup
+        paused = false; // Start paused for setup
     }
 
     // Internal time functions - can be overridden with a more secure time oracle in production
@@ -87,14 +90,22 @@ contract PayoutManager is IPayoutManager {
     }
 
     // Core functions
-    function checkAndTriggerPayout() external nonReentrant whenNotPaused returns (bool) {
+    function checkAndTriggerPayout()
+        external
+        nonReentrant
+        whenNotPaused
+        returns (bool)
+    {
         require(address(oracle) != address(0), "Oracle not set");
         require(address(insurancePool) != address(0), "Pool not set");
         require(!currentPayoutState.isActive, "Payout already active");
 
-        IInsurancePool.RiskType riskType = IInsurancePool.RiskType.STABLECOIN_DEPEG;
+        IInsurancePool.RiskType riskType = IInsurancePool
+            .RiskType
+            .STABLECOIN_DEPEG;
         require(
-            oracle.checkRiskCondition(riskType) && oracle.isRiskConditionMet(riskType),
+            oracle.checkRiskCondition(riskType) &&
+                oracle.isRiskConditionMet(riskType),
             "Risk condition not met"
         );
 
@@ -115,13 +126,16 @@ contract PayoutManager is IPayoutManager {
         return true;
     }
 
-    function processFirstPhasePayout(address buyer) external nonReentrant whenNotPaused returns (uint256) {
+    function processFirstPhasePayout(
+        address buyer
+    ) external nonReentrant whenNotPaused returns (uint256) {
         require(canClaimFirstPhase(buyer), "Cannot claim first phase");
 
         uint256 amount = calculatePayoutAmount(buyer);
         require(amount > 0, "No payout available");
 
-        uint256 firstPhaseAmount = (amount * _firstPhasePercentage()) / BASIS_POINTS;
+        uint256 firstPhaseAmount = (amount * _firstPhasePercentage()) /
+            BASIS_POINTS;
         uint256 currentTime = _getTimeNow();
         uint256 delay = _secondPhaseDelay();
 
@@ -137,18 +151,26 @@ contract PayoutManager is IPayoutManager {
         insurancePool.updatePayoutState(buyer, true, false);
 
         emit FirstPhaseInitiated(buyer, firstPhaseAmount, currentTime);
-        emit SecondPhaseInitiated(buyer, amount - firstPhaseAmount, currentTime + delay);
+        emit SecondPhaseInitiated(
+            buyer,
+            amount - firstPhaseAmount,
+            currentTime + delay
+        );
 
         return firstPhaseAmount;
     }
 
-    function processSecondPhasePayout(address buyer) external nonReentrant whenNotPaused returns (uint256) {
+    function processSecondPhasePayout(
+        address buyer
+    ) external nonReentrant whenNotPaused returns (uint256) {
         require(canClaimSecondPhase(buyer), "Cannot claim second phase");
 
         uint256 amount = calculatePayoutAmount(buyer);
         require(amount > 0, "No payout available");
 
-        uint256 secondPhaseAmount = amount - (amount * _firstPhasePercentage()) / BASIS_POINTS;
+        uint256 secondPhaseAmount = amount -
+            (amount * _firstPhasePercentage()) /
+            BASIS_POINTS;
 
         // Update payout state in insurance pool
         insurancePool.updatePayoutState(buyer, true, true);
@@ -156,34 +178,53 @@ contract PayoutManager is IPayoutManager {
         // Update local payout state
         currentPayoutState.isSecondPhaseComplete = true;
 
+        // Reset the payout state after successful completion
+        delete currentPayoutState;
+
         emit PayoutProcessed(buyer, secondPhaseAmount, false);
         return secondPhaseAmount;
     }
 
     function validatePayoutConditions() external view returns (bool) {
-        if (address(oracle) == address(0) || address(insurancePool) == address(0)) {
+        if (
+            address(oracle) == address(0) ||
+            address(insurancePool) == address(0)
+        ) {
             return false;
         }
 
-        return oracle.isRiskConditionMet(IInsurancePool.RiskType.STABLECOIN_DEPEG);
+        return
+            oracle.isRiskConditionMet(IInsurancePool.RiskType.STABLECOIN_DEPEG);
     }
 
     // View functions
-    function getCurrentPayoutState() external view returns (PayoutState memory) {
+    function getCurrentPayoutState()
+        external
+        view
+        returns (PayoutState memory)
+    {
         return currentPayoutState;
     }
 
     function canClaimFirstPhase(address buyer) public view returns (bool) {
-        if (!currentPayoutState.isActive || currentPayoutState.isFirstPhaseComplete) {
+        if (
+            !currentPayoutState.isActive ||
+            currentPayoutState.isFirstPhaseComplete
+        ) {
             return false;
         }
 
-        IInsurancePool.Coverage memory coverage = insurancePool.getCoverage(buyer);
+        IInsurancePool.Coverage memory coverage = insurancePool.getCoverage(
+            buyer
+        );
         if (!coverage.isActive) {
             return false;
         }
 
-        if (_getTimeNow() < currentPayoutState.triggerTime + _triggerConfirmationPeriod()) {
+        if (
+            _getTimeNow() <
+            currentPayoutState.triggerTime + _triggerConfirmationPeriod()
+        ) {
             return false;
         }
 
@@ -191,12 +232,16 @@ contract PayoutManager is IPayoutManager {
     }
 
     function canClaimSecondPhase(address buyer) public view returns (bool) {
-        if (!currentPayoutState.isActive || !currentPayoutState.isFirstPhaseComplete ||
-            currentPayoutState.isSecondPhaseComplete) {
+        if (
+            !currentPayoutState.isActive ||
+            !currentPayoutState.isFirstPhaseComplete ||
+            currentPayoutState.isSecondPhaseComplete
+        ) {
             return false;
         }
 
-        IInsurancePool.DelayedPayout memory payout = insurancePool.getDelayedPayout(buyer);
+        IInsurancePool.DelayedPayout memory payout = insurancePool
+            .getDelayedPayout(buyer);
         if (!payout.firstPhaseClaimed || payout.secondPhaseClaimed) {
             return false;
         }
@@ -208,12 +253,16 @@ contract PayoutManager is IPayoutManager {
         return true;
     }
 
-    function calculatePayoutAmount(address buyer) public view returns (uint256) {
+    function calculatePayoutAmount(
+        address buyer
+    ) public view returns (uint256) {
         if (!currentPayoutState.isActive) {
             return 0;
         }
 
-        IInsurancePool.Coverage memory coverage = insurancePool.getCoverage(buyer);
+        IInsurancePool.Coverage memory coverage = insurancePool.getCoverage(
+            buyer
+        );
         if (!coverage.isActive) {
             return 0;
         }
@@ -221,18 +270,26 @@ contract PayoutManager is IPayoutManager {
         return coverage.amount; // Full amount as we're using single risk bucket
     }
 
-    function getPayoutRiskType() external pure returns (IInsurancePool.RiskType) {
+    function getPayoutRiskType()
+        external
+        pure
+        returns (IInsurancePool.RiskType)
+    {
         return IInsurancePool.RiskType.STABLECOIN_DEPEG;
     }
 
     // Internal functions
-    function calculateTotalAffectedCoverage(IInsurancePool.RiskType riskType) internal view returns (uint256) {
+    function calculateTotalAffectedCoverage(
+        IInsurancePool.RiskType riskType
+    ) internal view returns (uint256) {
         require(
             riskType == IInsurancePool.RiskType.STABLECOIN_DEPEG,
             "Invalid risk type"
         );
 
-        IInsurancePool.RiskBucket memory bucket = insurancePool.getRiskBucket(riskType);
+        IInsurancePool.RiskBucket memory bucket = insurancePool.getRiskBucket(
+            riskType
+        );
         uint256 totalLiquidity = insurancePool.getTotalLiquidity();
 
         if (totalLiquidity == 0) {
@@ -240,7 +297,10 @@ contract PayoutManager is IPayoutManager {
         }
 
         uint256 maxPayout = (totalLiquidity * _maxPayoutRatio()) / BASIS_POINTS;
-        return bucket.activeCoverage > maxPayout ? maxPayout : bucket.activeCoverage;
+        return
+            bucket.activeCoverage > maxPayout
+                ? maxPayout
+                : bucket.activeCoverage;
     }
 
     // Admin functions

@@ -76,7 +76,7 @@ contract InsurancePool is IInsurancePool {
     constructor(address _stablecoin) {
         require(_stablecoin != address(0), "Invalid stablecoin address");
         owner = msg.sender;
-        paused = true; // Start paused for setup
+        paused = true;
         stablecoin = IERC20(_stablecoin);
         riskBucket = RiskBucket({
             allocatedLiquidity: 0,
@@ -102,11 +102,15 @@ contract InsurancePool is IInsurancePool {
         return BASIS_POINTS;
     }
 
-    function getCoverage(address buyer) external view returns (Coverage memory) {
+    function getCoverage(
+        address buyer
+    ) external view returns (Coverage memory) {
         return activeCoverages[buyer];
     }
 
-    function getDelayedPayout(address buyer) external view returns (DelayedPayout memory) {
+    function getDelayedPayout(
+        address buyer
+    ) external view returns (DelayedPayout memory) {
         return delayedPayouts[buyer];
     }
 
@@ -117,27 +121,36 @@ contract InsurancePool is IInsurancePool {
             return;
         }
 
-        uint256 newRate = ((riskBucket.activeCoverage + riskBucket.pendingPayouts) * BASIS_POINTS) / riskBucket.allocatedLiquidity;
+        uint256 newRate = ((riskBucket.activeCoverage +
+            riskBucket.pendingPayouts) * BASIS_POINTS) /
+            riskBucket.allocatedLiquidity;
         riskBucket.utilizationRate = newRate;
         emit UtilizationUpdated(RiskType.STABLECOIN_DEPEG, newRate);
     }
 
-    function calculatePremium(uint256 coverageAmount) external view returns (uint256) {
+    function calculatePremium(
+        uint256 coverageAmount
+    ) external view returns (uint256) {
         // For initial coverage with no liquidity, use base rate
         if (riskBucket.allocatedLiquidity == 0) {
-            return (coverageAmount * BASE_PREMIUM_RATE * COVERAGE_DURATION) / (365 days * BASIS_POINTS);
+            return
+                (coverageAmount * BASE_PREMIUM_RATE * COVERAGE_DURATION) /
+                (365 days * BASIS_POINTS);
         }
 
         uint256 utilization = riskBucket.utilizationRate;
-        uint256 multiplier = BASIS_POINTS * 8 / 10; // Start with 80% of base multiplier
+        uint256 multiplier = (BASIS_POINTS * 8) / 10; // Start with 80% of base multiplier
 
         if (utilization <= UTILIZATION_BREAKPOINT) {
             // Linear increase up to breakpoint, but slower (divide by 4)
-            multiplier = (BASIS_POINTS * 8 / 10) + (utilization / 4);
+            multiplier = ((BASIS_POINTS * 8) / 10) + (utilization / 4);
         } else {
             // Quadratic increase after breakpoint, but slower
             uint256 excess = utilization - UTILIZATION_BREAKPOINT;
-            multiplier = (BASIS_POINTS * 8 / 10) + (UTILIZATION_BREAKPOINT / 4) + ((excess * excess) / (BASIS_POINTS * 4));
+            multiplier =
+                ((BASIS_POINTS * 8) / 10) +
+                (UTILIZATION_BREAKPOINT / 4) +
+                ((excess * excess) / (BASIS_POINTS * 4));
         }
 
         uint256 adjustedRate = (BASE_PREMIUM_RATE * multiplier) / BASIS_POINTS;
@@ -145,24 +158,41 @@ contract InsurancePool is IInsurancePool {
             adjustedRate = MAX_PREMIUM_RATE;
         }
 
-        return (coverageAmount * adjustedRate * COVERAGE_DURATION) / (365 days * BASIS_POINTS);
+        return
+            (coverageAmount * adjustedRate * COVERAGE_DURATION) /
+            (365 days * BASIS_POINTS);
     }
 
-    function calculateRequiredDeposit(uint256 coverageAmount) external pure returns (uint256) {
+    function calculateRequiredDeposit(
+        uint256 coverageAmount
+    ) external pure returns (uint256) {
         return (coverageAmount * SECURITY_DEPOSIT_RATIO) / BASIS_POINTS;
     }
 
-    function purchaseCoverage(uint256 amount) external nonReentrant whenNotPaused {
+    function purchaseCoverage(
+        uint256 amount
+    ) external nonReentrant whenNotPaused {
         require(amount <= MAX_COVERAGE, "Exceeds maximum coverage");
-        require(!activeCoverages[msg.sender].isActive, "Active coverage exists");
+        require(
+            !activeCoverages[msg.sender].isActive,
+            "Active coverage exists"
+        );
 
         // Check if coverage exceeds 80% of total liquidity
         uint256 maxCoverage = (totalLiquidity * 80) / 100;
-        require(amount <= maxCoverage, "Coverage exceeds 80% of total liquidity");
-        require(amount <= riskBucket.allocatedLiquidity, "Exceeds bucket liquidity");
+        require(
+            amount <= maxCoverage,
+            "Coverage exceeds 80% of total liquidity"
+        );
+        require(
+            amount <= riskBucket.allocatedLiquidity,
+            "Exceeds bucket liquidity"
+        );
 
-        uint256 requiredDeposit = (amount * SECURITY_DEPOSIT_RATIO) / BASIS_POINTS;
-        uint256 initialFee = (requiredDeposit * INITIAL_FEE_RATE) / BASIS_POINTS;
+        uint256 requiredDeposit = (amount * SECURITY_DEPOSIT_RATIO) /
+            BASIS_POINTS;
+        uint256 initialFee = (requiredDeposit * INITIAL_FEE_RATE) /
+            BASIS_POINTS;
         uint256 remainingDeposit = requiredDeposit - initialFee;
 
         require(
@@ -202,22 +232,38 @@ contract InsurancePool is IInsurancePool {
         emit LiquidityAdded(msg.sender, amount);
     }
 
-    function requestWithdraw(uint256 amount) external nonReentrant whenNotPaused {
+    function requestWithdraw(
+        uint256 amount
+    ) external nonReentrant whenNotPaused {
         require(amount > 0, "Nothing to withdraw");
-        require(amount <= riskBucket.allocatedLiquidity, "Exceeds available liquidity");
+        require(
+            amount <= riskBucket.allocatedLiquidity,
+            "Exceeds available liquidity"
+        );
 
-        unlockRequests[msg.sender].push(UnlockRequest({
-            amount: amount,
-            unlockTime: block.timestamp + UNLOCK_PERIOD,
-            isActive: true
-        }));
+        unlockRequests[msg.sender].push(
+            UnlockRequest({
+                amount: amount,
+                unlockTime: block.timestamp + UNLOCK_PERIOD,
+                isActive: true
+            })
+        );
 
-        emit WithdrawRequested(msg.sender, amount, block.timestamp + UNLOCK_PERIOD);
+        emit WithdrawRequested(
+            msg.sender,
+            amount,
+            block.timestamp + UNLOCK_PERIOD
+        );
     }
 
     function executeWithdraw() external nonReentrant whenNotPaused {
-        require(unlockRequests[msg.sender].length > 0, "No pending withdrawals");
-        UnlockRequest storage request = unlockRequests[msg.sender][unlockRequests[msg.sender].length - 1];
+        require(
+            unlockRequests[msg.sender].length > 0,
+            "No pending withdrawals"
+        );
+        UnlockRequest storage request = unlockRequests[msg.sender][
+            unlockRequests[msg.sender].length - 1
+        ];
         require(request.isActive, "Request not active");
         require(block.timestamp >= request.unlockTime, "Still locked");
 
@@ -228,7 +274,10 @@ contract InsurancePool is IInsurancePool {
         totalLiquidity -= withdrawAmount;
         _updateUtilization();
 
-        require(stablecoin.transfer(msg.sender, withdrawAmount), "Token transfer failed");
+        require(
+            stablecoin.transfer(msg.sender, withdrawAmount),
+            "Token transfer failed"
+        );
 
         emit LiquidityWithdrawn(msg.sender, withdrawAmount);
     }
@@ -244,7 +293,10 @@ contract InsurancePool is IInsurancePool {
         riskBucket.pendingPayouts += amount;
         _updateUtilization();
 
-        require(stablecoin.transfer(msg.sender, amount), "Token transfer failed");
+        require(
+            stablecoin.transfer(msg.sender, amount),
+            "Token transfer failed"
+        );
 
         emit PayoutCompleted(msg.sender, amount);
     }
@@ -261,7 +313,14 @@ contract InsurancePool is IInsurancePool {
         riskBucket.pendingPayouts += amount;
         _updateUtilization();
 
-        require(stablecoin.transfer(msg.sender, amount), "Token transfer failed");
+        require(
+            stablecoin.transfer(msg.sender, amount),
+            "Token transfer failed"
+        );
+
+        // Deactivate coverage after second phase is claimed
+        Coverage storage coverage = activeCoverages[msg.sender];
+        coverage.isActive = false;
 
         emit PayoutCompleted(msg.sender, amount);
     }
@@ -269,7 +328,10 @@ contract InsurancePool is IInsurancePool {
     function deductFees() external returns (uint256) {
         Coverage storage coverage = activeCoverages[msg.sender];
         require(coverage.isActive, "No active coverage");
-        require(block.timestamp > coverage.lastFeeDeduction + 1 days, "Too soon");
+        require(
+            block.timestamp > coverage.lastFeeDeduction + 1 days,
+            "Too soon"
+        );
 
         uint256 dailyFee = this.calculatePremium(coverage.amount) / 365;
         require(coverage.remainingDeposit >= dailyFee, "Insufficient deposit");
