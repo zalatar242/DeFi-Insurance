@@ -11,9 +11,68 @@ const Simulation = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [depegTimestamp, setDepegTimestamp] = useState(null);
   const [timeLeft, setTimeLeft] = useState(1);
-  const [hasCoverage, setHasCoverage] = useState(false);
+  const [secondPhaseTimeLeft, setSecondPhaseTimeLeft] = useState(1);
+  const [payoutState, setPayoutState] = useState({
+    firstPhaseClaimed: false,
+    secondPhaseClaimed: false,
+    secondPhaseUnlockTime: null
+  });
   const RLUSD_ADDRESS = contracts.RLUSD.address; // RLUSD testnet
   const coverageAmount = ethers.parseEther("1000"); // 1000 RLUSD coverage
+
+  // Load payout state when component mounts
+  useEffect(() => {
+    const loadPayoutState = async () => {
+      if (!window.ethereum) return;
+
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        const payoutManager = new ethers.Contract(
+          contracts.PayoutManager.address,
+          contracts.PayoutManager.abi,
+          signer
+        );
+
+        const currentState = await payoutManager.getCurrentPayoutState();
+        const pool = new ethers.Contract(
+          contracts.InsurancePool.address,
+          contracts.InsurancePool.abi,
+          signer
+        );
+
+        if (currentState.isActive) {
+          const userAddr = await signer.getAddress();
+          const delayedPayout = await pool.getDelayedPayout(userAddr);
+
+          setPayoutState({
+            firstPhaseClaimed: delayedPayout.firstPhaseClaimed,
+            secondPhaseClaimed: delayedPayout.secondPhaseClaimed
+          });
+
+          // Convert BigInt to Number for UI handling
+          setDepegTimestamp(Number(currentState.triggerTime));
+        }
+      } catch (error) {
+        // Only log the error, don't show alert for background refresh errors
+        console.error("Error loading payout state:", error);
+        // Clear states if we can't load them
+        if (error.code === 'NETWORK_ERROR') {
+          setDepegTimestamp(null);
+          setPayoutState({ firstPhaseClaimed: false, secondPhaseClaimed: false });
+        }
+      }
+    };
+
+    // Initial load
+    loadPayoutState();
+
+    // Set up periodic refresh
+    const refreshInterval = setInterval(loadPayoutState, 2000); // Refresh every 2 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, []);
 
   // Check if enough time has passed since depeg
   const canTriggerPayout = depegTimestamp &&
@@ -74,22 +133,60 @@ const Simulation = () => {
     setIsLoading(true);
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // Get contract instances
       const payoutManager = new ethers.Contract(
         contracts.PayoutManager.address,
         contracts.PayoutManager.abi,
-        await provider.getSigner()
+        signer
+      );
+      const insurancePool = new ethers.Contract(
+        contracts.InsurancePool.address,
+        contracts.InsurancePool.abi,
+        signer
       );
 
       // Trigger the payout
       const tx = await payoutManager.checkAndTriggerPayout();
       await tx.wait();
-      alert('Successfully triggered payout process!');
+
+      // Wait for confirmation period
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Process first phase through PayoutManager
+      const firstPhaseTx = await payoutManager.processFirstPhasePayout(await signer.getAddress());
+      await firstPhaseTx.wait();
+      setPayoutState(prev => ({ ...prev, firstPhaseClaimed: true }));
+
+      // Now claim first phase from pool
+      const claimFirstTx = await insurancePool.claimFirstPhasePayout();
+      await claimFirstTx.wait();
+
+      // Wait for second phase (now just 1 second)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Stop after first phase is complete - second phase will be handled separately
+      alert('First phase completed! You can now claim the second phase after the waiting period.');
     } catch (error) {
-      console.error('Error triggering payout:', error);
-      const errorMsg = error.reason === "Risk condition not met"
-        ? "Please wait 1 second after the depeg event before triggering the payout."
-        : error.reason || error.message;
-      alert(`Failed to trigger payout process: ${errorMsg}`);
+      console.error('Error during payout process:', error);
+      let errorMsg;
+      if (error.reason === "Risk condition not met") {
+        errorMsg = "Please wait 1 second after the depeg event before triggering the payout.";
+      } else if (error.reason === "Cannot claim first phase") {
+        errorMsg = "Waiting for confirmation period before first phase payout can be claimed.";
+      } else if (error.reason === "Cannot claim second phase") {
+        errorMsg = "Second phase is not ready yet. Please wait 1 second.";
+      } else if (error.reason === "No payout available") {
+        errorMsg = "Please make sure you have active coverage before triggering payout.";
+      } else if (error.reason === "Payout already active") {
+        errorMsg = "Payout process is already in progress. Click 'Start New Simulation' to begin a new payout cycle.";
+      } else if (error.reason === "First phase already claimed") {
+        errorMsg = "First phase has already been claimed. Please wait for the second phase or click 'Start New Simulation' to begin a new cycle.";
+      } else {
+        errorMsg = error.reason || error.message;
+      }
+      alert(`Payout process failed: ${errorMsg}`);
     } finally {
       setIsLoading(false);
     }
@@ -112,12 +209,84 @@ const Simulation = () => {
         <div>
           <p>Depeg event simulated at: {new Date(depegTimestamp * 1000).toLocaleString()}</p>
           <p>Status: {canTriggerPayout ? 'Ready for payout!' : `Waiting for confirmation... ${timeLeft} second${timeLeft !== 1 ? 's' : ''} remaining`}</p>
-          <SimulateButton
-            onClick={triggerPayout}
-            disabled={isLoading || !canTriggerPayout}
-          >
-            {isLoading ? 'Processing...' : 'Trigger Insurance Payout'}
-          </SimulateButton>
+          {payoutState.secondPhaseClaimed ? (
+           <>
+             <p>✅ Payout completed! Your coverage has been deactivated and both phases (100%) claimed.</p>
+             <SimulateButton
+               onClick={() => {
+                 setDepegTimestamp(null);
+                 setPayoutState({ firstPhaseClaimed: false, secondPhaseClaimed: false });
+               }}
+             >
+               Start New Simulation
+             </SimulateButton>
+           </>
+          ) : payoutState.firstPhaseClaimed ? (
+           <>
+             <p>✓ First phase (50%) has been claimed</p>
+             <p>⏳ Preparing second phase payout...</p>
+             <SimulateButton
+               onClick={async () => {
+                 setIsLoading(true);
+                 try {
+                   const provider = new ethers.BrowserProvider(window.ethereum);
+                   const signer = await provider.getSigner();
+                   const payoutManager = new ethers.Contract(
+                     contracts.PayoutManager.address,
+                     contracts.PayoutManager.abi,
+                     signer
+                   );
+
+                   // Quick retry mechanism with small delay
+                   const retry = async (attempts = 3) => {
+                     for (let i = 0; i < attempts; i++) {
+                       try {
+                         const secondPhaseTx = await payoutManager.processSecondPhasePayout(await signer.getAddress());
+                         await secondPhaseTx.wait();
+
+                         const insurancePool = new ethers.Contract(
+                           contracts.InsurancePool.address,
+                           contracts.InsurancePool.abi,
+                           signer
+                         );
+                         const claimSecondTx = await insurancePool.claimSecondPhasePayout();
+                         await claimSecondTx.wait();
+                         setPayoutState(prev => ({ ...prev, secondPhaseClaimed: true }));
+                         return true;
+                       } catch (error) {
+                         if (i === attempts - 1) throw error;
+                         await new Promise(resolve => setTimeout(resolve, 1000));
+                       }
+                     }
+                     return false;
+                   };
+
+                   await retry();
+                   alert('Successfully claimed second phase payout!');
+                 } catch (error) {
+                   console.error('Error in second phase:', error);
+                   alert(`Failed to process second phase: ${error.reason || error.message}. Please try again in a moment.`);
+                 } finally {
+                   setIsLoading(false);
+                 }
+               }}
+               disabled={isLoading}
+             >
+               {isLoading ? 'Processing Second Phase...' : 'Process Final Payout (50%)'}
+             </SimulateButton>
+           </>
+          ) : (
+           <>
+             <p>Insurance Payout Status:</p>
+             <p>{canTriggerPayout ? '🟢 Ready to process payout' : '⏳ Waiting for confirmation period...'}</p>
+             <SimulateButton
+               onClick={triggerPayout}
+               disabled={isLoading || !canTriggerPayout}
+             >
+               {isLoading ? 'Processing First Phase...' : canTriggerPayout ? 'Start Payout Process' : 'Please Wait...'}
+             </SimulateButton>
+           </>
+          )}
         </div>
       )}
     </Container>

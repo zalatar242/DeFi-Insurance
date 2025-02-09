@@ -318,6 +318,10 @@ contract InsurancePool is IInsurancePool {
             "Token transfer failed"
         );
 
+        // Deactivate coverage after second phase is claimed
+        Coverage storage coverage = activeCoverages[msg.sender];
+        coverage.isActive = false;
+
         emit PayoutCompleted(msg.sender, amount);
     }
 

@@ -20,11 +20,11 @@ contract PayoutManager is IPayoutManager {
     }
 
     function _secondPhaseDelay() internal pure returns (uint256) {
-        return 72 hours;
+        return 1 seconds; // Reduced for demo purposes
     }
 
     function _triggerConfirmationPeriod() internal pure returns (uint256) {
-        return 24 hours;
+        return 1 seconds;
     }
 
     function _maxPayoutRatio() internal pure returns (uint256) {
@@ -177,6 +177,9 @@ contract PayoutManager is IPayoutManager {
 
         // Update local payout state
         currentPayoutState.isSecondPhaseComplete = true;
+
+        // Reset the payout state after successful completion
+        delete currentPayoutState;
 
         emit PayoutProcessed(buyer, secondPhaseAmount, false);
         return secondPhaseAmount;
