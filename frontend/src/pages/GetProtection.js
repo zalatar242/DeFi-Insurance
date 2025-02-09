@@ -39,37 +39,61 @@ const GetProtection = () => {
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
+      const userAddress = await signer.getAddress()
 
+      // Contract setup
       const insurancePool = new ethers.Contract(
         contracts.InsurancePool.address,
         contracts.InsurancePool.abi,
         signer
       );
+      if (await insurancePool.paused()) {
+        throw new Error("Insurance Pool contract is currently paused");
+      }
 
-      // Calculate base premium for $100 coverage
+      // Get pool data
+      const totalLiquidity = await insurancePool.getTotalLiquidity();
+      const totalSecurityDeposits = await insurancePool.totalSecurityDeposits();
+      const totalActiveCoverage = await insurancePool.totalActiveCoverage();
+
+      // Calculate available coverage using same formula as contract:
+      // initialLiquidity = totalLiquidity - totalSecurityDeposits
+      // maxCoverage = (initialLiquidity * 80) / 100
+      // availableCoverage = maxCoverage - totalActiveCoverage + totalSecurityDeposits
+      const initialLiquidity = totalLiquidity - totalSecurityDeposits;
+      const maxCoverage = (initialLiquidity * 80n) / 100n;
+      const availableCoverage = maxCoverage - totalActiveCoverage + totalSecurityDeposits;
+
+      console.log("Pool data:", {
+        totalLiquidity: ethers.formatEther(totalLiquidity),
+        totalSecurityDeposits: ethers.formatEther(totalSecurityDeposits),
+        totalActiveCoverage: ethers.formatEther(totalActiveCoverage),
+        initialLiquidity: ethers.formatEther(initialLiquidity),
+        maxCoverage: ethers.formatEther(maxCoverage),
+        availableCoverage: ethers.formatEther(availableCoverage)
+      });
+
+      // Calculate premium for $100 coverage
       const baseAmount = ethers.parseEther("100");
       const premium = await insurancePool.calculatePremium(baseAmount);
 
-      // Fetch risk bucket data for stablecoin depeg
-      const depegRiskBucket = await insurancePool.getRiskBucket(0); // STABLECOIN_DEPEG is 0
-
-      // Get user's current coverage if any
-      const userAddress = await signer.getAddress();
+      // Get user's current coverage
       const coverage = await insurancePool.getCoverage(userAddress);
 
       setStablecoinProtection({
         title: "RLUSD Protection",
-        risks: ["Stablecoin Depegging Risk (50% weight)", "Smart Contract Risk (50% weight)"],
+        risks: ["Stablecoin Depegging Risk (100% weight)", "Smart Contract Risk (0% weight)"],
         costPerHundred: parseFloat(ethers.formatEther(premium)),
-        maxProtection: ethers.formatEther(depegRiskBucket.allocatedLiquidity),
-        availableProtection: (parseFloat(ethers.formatEther(depegRiskBucket.allocatedLiquidity)) * 0.8).toString(),
+        maxProtection: ethers.formatEther(totalLiquidity),
+        availableProtection: ethers.formatEther(availableCoverage),
         currentBalance: coverage.isActive ? ethers.formatEther(coverage.amount) : 0
       });
 
       setError(null);
+
     } catch (err) {
       console.error("Error loading protection data:", err);
-      setError("Error loading protection data. Please make sure you are connected to the correct network.");
+      setError(err.message || "Unknown error occurred");
     }
   };
 

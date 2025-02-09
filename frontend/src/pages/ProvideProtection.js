@@ -93,13 +93,12 @@ const ProvideProtection = () => {
         signer
       );
 
-      // Calculate allocations - 100% to selected bucket
-      const allocations = [0, 0];
-      const index = {
-        STABLECOIN_DEPEG: 0,
-        SMART_CONTRACT: 1
-      }[riskType];
-      allocations[index] = BASIS_POINTS; // 100% in basis points
+      // Check if trying to provide to smart contract risk bucket
+      if (riskType === "SMART_CONTRACT") {
+        setError("Smart contract risk bucket is temporarily disabled. Please check back later.");
+        setSubmitting(false);
+        return;
+      }
 
       // Convert amount to wei
       const amountInWei = ethers.parseEther(amounts[riskType]);
@@ -115,8 +114,8 @@ const ProvideProtection = () => {
       const approveTx = await rlusd.approve(contracts.InsurancePool.address, amountInWei);
       await approveTx.wait();
 
-      // Call addLiquidity with allocations array
-      const tx = await insurancePool.addLiquidity(allocations, amountInWei);
+      // Call addLiquidity (no need for allocations array in new contract)
+      const tx = await insurancePool.addLiquidity(amountInWei);
       await tx.wait();
 
       // Clear input and refresh data
@@ -155,23 +154,13 @@ const ProvideProtection = () => {
         SMART_CONTRACT: 1
       };
 
-      const [
-        stablecoinRiskBucket,
-        smartContractRiskBucket,
-        stablecoinWeight,
-        smartContractWeight
-      ] = await Promise.all([
-        insurancePool.getRiskBucket(RiskType.STABLECOIN_DEPEG),
-        insurancePool.getRiskBucket(RiskType.SMART_CONTRACT),
-        insurancePool.getBucketWeight(RiskType.STABLECOIN_DEPEG),
-        insurancePool.getBucketWeight(RiskType.SMART_CONTRACT)
-      ]);
+      const stablecoinRiskBucket = await insurancePool.getRiskBucket(RiskType.STABLECOIN_DEPEG);
 
       setRiskBuckets([
         {
           type: "STABLECOIN_DEPEG",
           title: "Stablecoin Depeg",
-          weight: "50%",
+          weight: "100%",
           icon: <Warning />,
           color: "#6c5ce7",
           apy: calculateAPY(formatUtilization(stablecoinRiskBucket.utilizationRate)),
@@ -182,13 +171,13 @@ const ProvideProtection = () => {
         {
           type: "SMART_CONTRACT",
           title: "Smart Contract Risk",
-          weight: "50%",
+          weight: "0%",
           icon: <Security />,
           color: "#ff7675",
-          apy: calculateAPY(formatUtilization(smartContractRiskBucket.utilizationRate)),
-          allocatedLiquidity: formatLiquidity(smartContractRiskBucket.allocatedLiquidity),
-          utilization: `${formatUtilization(smartContractRiskBucket.utilizationRate)}%`,
-          description: "Protection against smart contract vulnerabilities"
+          apy: "0.00%",
+          allocatedLiquidity: "0",
+          utilization: "0.0%",
+          description: "Protection against smart contract vulnerabilities (Coming Soon)"
         }
       ]);
 
@@ -203,6 +192,74 @@ const ProvideProtection = () => {
 
   useEffect(() => {
     loadData();
+
+    // Set up event listeners for relevant contract events
+    const setupEventListeners = async () => {
+      if (!window.ethereum) return;
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const insurancePool = new ethers.Contract(
+        contracts.InsurancePool.address,
+        contracts.InsurancePool.abi,
+        provider
+      );
+
+      // Listen for all relevant events that affect liquidity and utilization
+      insurancePool.on("CoveragePurchased", (buyer, amount, deposit, premium) => {
+        loadData(); // Refresh data when new coverage is purchased
+      });
+
+      insurancePool.on("CoverageExpired", (buyer) => {
+        loadData(); // Refresh when coverage expires
+      });
+
+      insurancePool.on("PayoutInitiated", (buyer, riskType, amount) => {
+        loadData(); // Refresh when payout is initiated
+      });
+
+      insurancePool.on("PayoutCompleted", (buyer, amount) => {
+        loadData(); // Refresh when payout is completed
+      });
+
+      insurancePool.on("LiquidityAdded", (provider, amount) => {
+        loadData(); // Refresh when new liquidity is added
+      });
+
+      insurancePool.on("LiquidityWithdrawn", (provider, amount) => {
+        loadData(); // Refresh when liquidity is withdrawn
+      });
+
+      insurancePool.on("UtilizationUpdated", (riskType, newRate) => {
+        loadData(); // Refresh when utilization rate is updated
+      });
+    };
+
+    setupEventListeners();
+
+    // Cleanup function to remove event listeners
+    return () => {
+      const cleanup = async () => {
+        if (!window.ethereum) return;
+
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const insurancePool = new ethers.Contract(
+          contracts.InsurancePool.address,
+          contracts.InsurancePool.abi,
+          provider
+        );
+
+        // Remove all event listeners
+        insurancePool.removeAllListeners("CoveragePurchased");
+        insurancePool.removeAllListeners("CoverageExpired");
+        insurancePool.removeAllListeners("PayoutInitiated");
+        insurancePool.removeAllListeners("PayoutCompleted");
+        insurancePool.removeAllListeners("LiquidityAdded");
+        insurancePool.removeAllListeners("LiquidityWithdrawn");
+        insurancePool.removeAllListeners("UtilizationUpdated");
+      };
+
+      cleanup();
+    };
   }, []);
 
   if (loading) {
