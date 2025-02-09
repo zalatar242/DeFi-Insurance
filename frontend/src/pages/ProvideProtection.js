@@ -40,7 +40,7 @@ const ProvideProtection = () => {
   const MAX_PREMIUM_RATE = 600; // 6% annual
 
   const formatUtilization = (utilizationRate) => {
-    return ((Number(utilizationRate) * 100) / BASIS_POINTS).toFixed(1);
+    return (Number(utilizationRate) * 100 / 1e18).toFixed(1);
   };
 
   const formatLiquidity = (liquidity) => {
