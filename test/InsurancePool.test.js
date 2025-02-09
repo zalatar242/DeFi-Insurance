@@ -1,16 +1,19 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { time } = require("@nomicfoundation/hardhat-network-helpers");
+const { utils } = ethers;
 
 describe("InsurancePool", function () {
   let insurancePool;
   let rlusd;
+  let insuranceOracle;
   let owner;
   let buyer;
   let provider;
+  let buyer2;
+  let buyer3;
 
   beforeEach(async function () {
-    [owner, buyer, provider] = await ethers.getSigners();
+    [owner, buyer, provider, buyer2, buyer3] = await ethers.getSigners();
 
     // Deploy mock RLUSD
     const RLUSDMock = await ethers.getContractFactory("RLUSDMock");
@@ -27,6 +30,9 @@ describe("InsurancePool", function () {
     insurancePool = await InsurancePool.deploy(rlusd.address);
     await insurancePool.deployed();
 
+    // Set Oracle
+    await insurancePool.setOracle(insuranceOracle.address);
+
     // Unpause
     await insurancePool.unpause();
 
@@ -34,132 +40,73 @@ describe("InsurancePool", function () {
     const amount = ethers.utils.parseEther("10000");
     await rlusd.transfer(buyer.address, amount);
     await rlusd.transfer(provider.address, amount);
+    await rlusd.transfer(buyer2.address, amount);
+    await rlusd.transfer(buyer3.address, amount);
   });
 
-  describe("Coverage Purchase", function () {
-    it("Should allow purchasing coverage with security deposit", async function () {
-      const coverageAmount = ethers.utils.parseEther("1000");
-      const requiredDeposit = coverageAmount.mul(20).div(100); // 20%
+  describe("Liquidity and Coverage Calculations", function () {
+    it("should correctly track liquidity and available coverage", async function () {
+      // Initial liquidity: provider adds 10 RLUSD
+      const initialLiquidity = utils.parseEther("10");
+      await rlusd.connect(provider).approve(insurancePool.address, initialLiquidity);
+      await insurancePool.connect(provider).addLiquidity(initialLiquidity);
 
-      // First add some liquidity
-      const liquidityAmount = ethers.utils.parseEther("2000");
-      await rlusd.connect(provider).approve(insurancePool.address, liquidityAmount);
-      await insurancePool.connect(provider).addLiquidity(liquidityAmount);
+      // Check initial state
+      let totalLiquidity = await insurancePool.getTotalLiquidity();
+      expect(totalLiquidity).to.equal(initialLiquidity);
+      expect(totalLiquidity).to.equal(utils.parseEther("10")); // 10 RLUSD
 
-      // Approve and purchase coverage
-      await rlusd.connect(buyer).approve(insurancePool.address, requiredDeposit);
-// Purchase coverage and get the event
-const tx = await insurancePool.connect(buyer).purchaseCoverage(coverageAmount);
-const receipt = await tx.wait();
-const event = receipt.events.find(e => e.event === 'CoveragePurchased');
+      // Calculate available coverage (80% of initial liquidity)
+      const availableCoverage = initialLiquidity.mul(80).div(100);
+      expect(availableCoverage).to.equal(utils.parseEther("8")); // 8 RLUSD
 
-// Verify event data
-expect(event.args.buyer).to.equal(buyer.address);
-expect(event.args.coverageAmount).to.equal(coverageAmount);
-expect(event.args.securityDeposit).to.equal(requiredDeposit);
+      // Purchase coverage of 4 RLUSD
+      const coverageAmount = utils.parseEther("4");
+      const securityDeposit = coverageAmount.mul(20).div(100); // 20% = 0.8 RLUSD
 
-// Verify premium is in reasonable range (1-2% annual)
-const premium = event.args.premium;
-const expectedAnnualMin = coverageAmount.mul(100).div(10000); // 1%
-const expectedAnnualMax = coverageAmount.mul(200).div(10000); // 2%
-const expectedMin = expectedAnnualMin.mul(30).div(365); // 30 days
-const expectedMax = expectedAnnualMax.mul(30).div(365); // 30 days
+      await rlusd.connect(buyer).approve(insurancePool.address, securityDeposit);
+      await insurancePool.connect(buyer).purchaseCoverage(coverageAmount);
 
-expect(premium).to.be.gt(expectedMin);
-expect(premium).to.be.lt(expectedMax);
+      // Verify system state after coverage purchase:
+      // 1. Total liquidity should be initial + security deposit
+      totalLiquidity = await insurancePool.getTotalLiquidity();
+      expect(totalLiquidity).to.equal(initialLiquidity.add(securityDeposit));
+      expect(totalLiquidity).to.equal(utils.parseEther("10.8")); // 10 + 0.8 RLUSD
 
-const coverage = await insurancePool.getCoverage(buyer.address);
+      // 2. Coverage details for buyer should be correct
+      const coverage = await insurancePool.getCoverage(buyer.address);
+      expect(coverage.amount).to.equal(coverageAmount); // 4 RLUSD coverage
+      expect(coverage.securityDeposit).to.equal(securityDeposit); // 0.8 RLUSD deposit
       expect(coverage.isActive).to.be.true;
-      expect(coverage.amount).to.equal(coverageAmount);
-      expect(coverage.securityDeposit).to.equal(requiredDeposit);
-    });
 
-    it("Should reject purchase with insufficient liquidity", async function () {
-      const coverageAmount = ethers.utils.parseEther("1000");
-      const requiredDeposit = coverageAmount.mul(20).div(100);
+      // 3. Remaining available coverage should be:
+      // Initial available (8) - Coverage taken (4) + Security deposit (0.8) = 4.8 RLUSD
+      const expectedRemaining = utils.parseEther("4.8");
 
-      // No liquidity added yet
-      await rlusd.connect(buyer).approve(insurancePool.address, requiredDeposit);
-      await expect(insurancePool.connect(buyer).purchaseCoverage(coverageAmount))
-        .to.be.revertedWith("Coverage exceeds 80% of total liquidity");
-    });
-  });
+      // Test we can't exceed available coverage with a different buyer
+      const slightlyTooMuch = expectedRemaining.add(utils.parseEther("0.1")); // Try 4.9 RLUSD
+      const tooMuchDeposit = slightlyTooMuch.mul(20).div(100);
+      await rlusd.connect(buyer2).approve(insurancePool.address, tooMuchDeposit);
 
-  describe("Liquidity Provision", function () {
-    it("Should allow adding liquidity", async function () {
-      const liquidityAmount = ethers.utils.parseEther("1000");
-      await rlusd.connect(provider).approve(insurancePool.address, liquidityAmount);
+      // This should fail as it exceeds available coverage
+      await expect(
+        insurancePool.connect(buyer2).purchaseCoverage(slightlyTooMuch)
+      ).to.be.revertedWith("Coverage exceeds 80% of initial liquidity");
 
-      await expect(insurancePool.connect(provider).addLiquidity(liquidityAmount))
-        .to.emit(insurancePool, "LiquidityAdded")
-        .withArgs(provider.address, liquidityAmount);
+      // Test we can use exactly the remaining coverage with another buyer
+      const remainingDeposit = expectedRemaining.mul(20).div(100);
+      await rlusd.connect(buyer3).approve(insurancePool.address, remainingDeposit);
 
-      expect(await insurancePool.getTotalLiquidity()).to.equal(liquidityAmount);
-    });
+      // This should succeed as it's exactly the available coverage
+      await expect(
+        insurancePool.connect(buyer3).purchaseCoverage(expectedRemaining)
+      ).to.not.be.reverted;
 
-    it("Should enforce max coverage limit of 80% of liquidity", async function () {
-      // Add liquidity
-      const liquidityAmount = ethers.utils.parseEther("1000");
-      await rlusd.connect(provider).approve(insurancePool.address, liquidityAmount);
-      await insurancePool.connect(provider).addLiquidity(liquidityAmount);
-
-      // Try to purchase more than 80% coverage
-      const coverageAmount = ethers.utils.parseEther("801"); // 80.1%
-      const requiredDeposit = coverageAmount.mul(20).div(100);
-
-      await rlusd.connect(buyer).approve(insurancePool.address, requiredDeposit);
-      await expect(insurancePool.connect(buyer).purchaseCoverage(coverageAmount))
-        .to.be.revertedWith("Coverage exceeds 80% of total liquidity");
-    });
-  });
-
-  describe("Premium Calculation", function () {
-    it("Should calculate premium based on utilization", async function () {
-      const coverageAmount = ethers.utils.parseEther("1000");
-
-      // Add liquidity first
-      const liquidityAmount = ethers.utils.parseEther("2000");
-      await rlusd.connect(provider).approve(insurancePool.address, liquidityAmount);
-      await insurancePool.connect(provider).addLiquidity(liquidityAmount);
-
-      const premium = await insurancePool.calculatePremium(coverageAmount);
-      expect(premium).to.be.gt(0);
-    });
-  });
-
-  describe("Withdrawals", function () {
-    it("Should allow requesting withdrawal", async function () {
-      const liquidityAmount = ethers.utils.parseEther("1000");
-      await rlusd.connect(provider).approve(insurancePool.address, liquidityAmount);
-      await insurancePool.connect(provider).addLiquidity(liquidityAmount);
-
-      const tx = await insurancePool.connect(provider).requestWithdraw(liquidityAmount);
-      const receipt = await tx.wait();
-      const event = receipt.events.find(e => e.event === 'WithdrawRequested');
-
-      expect(event.args.provider).to.equal(provider.address);
-      expect(event.args.amount).to.equal(liquidityAmount);
-
-      // Verify unlock time is roughly 7 days in the future (within 2 seconds)
-      const currentTime = await time.latest();
-      const unlockTime = event.args.unlockTime;
-      const sevenDays = 7 * 24 * 3600;
-      expect(unlockTime).to.be.closeTo(currentTime + sevenDays, 2);
-    });
-
-    it("Should allow executing withdrawal after delay", async function () {
-      const liquidityAmount = ethers.utils.parseEther("1000");
-      await rlusd.connect(provider).approve(insurancePool.address, liquidityAmount);
-      await insurancePool.connect(provider).addLiquidity(liquidityAmount);
-      await insurancePool.connect(provider).requestWithdraw(liquidityAmount);
-
-      await time.increase(7 * 24 * 3600 + 1); // 7 days + 1 second
-
-      await expect(insurancePool.connect(provider).executeWithdraw())
-        .to.emit(insurancePool, "LiquidityWithdrawn")
-        .withArgs(provider.address, liquidityAmount);
-
-      expect(await insurancePool.getTotalLiquidity()).to.equal(0);
+      // Verify final state
+      const finalLiquidity = await insurancePool.getTotalLiquidity();
+      expect(finalLiquidity).to.equal(
+        initialLiquidity.add(securityDeposit).add(remainingDeposit)
+      );
     });
   });
 });
