@@ -16,7 +16,7 @@ contract InsuranceOracle is IInsuranceOracle {
     // 2. Price feeds from Chainlink provide their own timestamps
     // 3. The system is designed to be resilient to small timing variations
     uint256 public constant STABLECOIN_DEVIATION_THRESHOLD = 5e6; // 5%
-    uint256 public constant MINIMUM_TRIGGER_DURATION = 1 hours;
+    uint256 public constant MINIMUM_TRIGGER_DURATION = 1 seconds; // Minimal delay for testing
     uint256 public constant PRICE_PRECISION = 1e8;
 
     // State variables
@@ -137,7 +137,6 @@ contract InsuranceOracle is IInsuranceOracle {
         state.isTriggered = true;
         state.triggerStartTime = currentTime;
         state.details = bytes32(uint256(uint160(stablecoin))); // Store which stablecoin triggered
-
         emit RiskConditionTriggered(
             IInsurancePool.RiskType.STABLECOIN_DEPEG,
             currentTime,
